@@ -41,6 +41,7 @@ docker-data/
 .antigravity/
 .agent/
 .agents/
+.codegraph/
 brain/
 worktrees/
 dev/
