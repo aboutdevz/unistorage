@@ -169,7 +169,7 @@ jobs:
           cd ..
 
       - name: Generate Release SBOM with Syft
-        uses: anchore/sbom-action/download-syft@v0.16.0
+        uses: anchore/sbom-action/download-syft@v0.24.2
 
       - name: Create CycloneDX Release SBOM
         run: |

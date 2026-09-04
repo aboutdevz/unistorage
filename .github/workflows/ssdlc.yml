@@ -176,7 +176,7 @@ jobs:
         uses: sigstore/cosign-installer@v3.5.0
 
       - name: Install Syft
-        uses: anchore/sbom-action/download-syft@v0.16.0
+        uses: anchore/sbom-action/download-syft@v0.24.2
 
       - name: Generate CycloneDX SBOM
         run: |
