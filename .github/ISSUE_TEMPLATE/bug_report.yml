@@ -1,0 +1,89 @@
+name: "Bug Report"
+description: "File an actionable bug report to help us improve UniStorage"
+title: "[Bug]: "
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for reporting an issue! Please check if a similar issue is already open before submitting.
+        **Security issues must NOT be reported here; use [SECURITY.md](../../SECURITY.md) instead.**
+  - type: input
+    id: version
+    attributes:
+      label: "UniStorage Version"
+      description: "Output of `unistorage version --json`"
+      placeholder: "e.g., v0.1.0 (commit: abc1234)"
+    validations:
+      required: true
+  - type: dropdown
+    id: backend
+    attributes:
+      label: "Storage Backend Affected"
+      description: "Which storage provider or driver was being used?"
+      options:
+        - "Local Filesystem (pkg/storage/local)"
+        - "AWS S3 (pkg/storage/s3)"
+        - "MinIO (pkg/storage/s3)"
+        - "Cloudflare R2 (pkg/storage/s3)"
+        - "Ceph / Other S3 compatible"
+        - "Encrypted Vault (pkg/vault)"
+        - "Daemon / Loopback API (internal/daemon)"
+        - "CLI Tooling (cmd/unistorage)"
+        - "Other / Multiple"
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: "Operating System & Architecture"
+      placeholder: "e.g., Linux amd64, macOS arm64, Windows 11 amd64"
+    validations:
+      required: true
+  - type: input
+    id: go_version
+    attributes:
+      label: "Go Version"
+      placeholder: "e.g., go version go1.24.0 linux/amd64"
+    validations:
+      required: false
+  - type: textarea
+    id: description
+    attributes:
+      label: "Describe the Bug"
+      description: "A clear and concise description of what the bug is."
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: "Steps to Reproduce"
+      description: "Exact steps or commands to reproduce the issue."
+      placeholder: |
+        1. unistorage remote add test-s3 s3 --endpoint ...
+        2. unistorage sync local:/path test-s3:/bucket
+        3. See error
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: "Expected Behavior"
+      description: "What did you expect to happen?"
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: "Logs / Output"
+      description: "Paste command line output or daemon logs (redacting any private keys or tokens)."
+      render: shell
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: "Checklist"
+      options:
+        - label: "I have confirmed no secrets, passwords, or private keys are exposed in this report."
+          required: true
+        - label: "I have searched existing issues to ensure this is not a duplicate."
+          required: true

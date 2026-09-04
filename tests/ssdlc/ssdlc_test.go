@@ -697,3 +697,98 @@ func TestFuzzPathSanitizer_Execution(t *testing.T) {
 		}
 	}
 }
+
+// -----------------------------------------------------------------------------
+// 8. Open-Source Community Health & Configuration Files Test
+// -----------------------------------------------------------------------------
+func TestCommunityAndRepoHealth_Files(t *testing.T) {
+	root := findProjectRoot(t)
+
+	requiredFiles := map[string][]string{
+		"LICENSE": {
+			"Apache License",
+			"Version 2.0",
+			"http://www.apache.org/licenses/",
+		},
+		"CONTRIBUTING.md": {
+			"Contributing to UniStorage",
+			"Open-Core Architecture Philosophy",
+			"Conventional Commits",
+			"docker compose up -d",
+			"FuzzPathSanitizer",
+		},
+		"CODE_OF_CONDUCT.md": {
+			"Contributor Covenant Code of Conduct",
+			"Our Pledge",
+			"Our Standards",
+		},
+		"SUPPORT.md": {
+			"Getting Support for UniStorage",
+			"GitHub Discussions",
+			"Diagnostic Checklist Before Asking",
+		},
+		"CHANGELOG.md": {
+			"Keep a Changelog",
+			"Semantic Versioning",
+			"[0.1.0]",
+		},
+		".github/CODEOWNERS": {
+			"* @aboutdevz/core-maintainers",
+			"/pkg/vault/ @aboutdevz/security-team",
+			"/.github/workflows/ @aboutdevz/devops-team",
+		},
+		".github/dependabot.yml": {
+			`package-ecosystem: "gomod"`,
+			`package-ecosystem: "github-actions"`,
+			`package-ecosystem: "docker"`,
+		},
+		".github/ISSUE_TEMPLATE/config.yml": {
+			"blank_issues_enabled: false",
+			"security/advisories/new",
+		},
+		".github/ISSUE_TEMPLATE/bug_report.yml": {
+			`name: "Bug Report"`,
+			"UniStorage Version",
+			"Storage Backend Affected",
+		},
+		".github/ISSUE_TEMPLATE/feature_request.yml": {
+			`name: "Feature Request"`,
+			"Target Subsystem",
+		},
+		".goreleaser.yml": {
+			"version: 2",
+			"project_name: unistorage",
+			"main.Version={{.Version}}",
+		},
+		".pre-commit-config.yaml": {
+			"repo: https://github.com/pre-commit/pre-commit-hooks",
+			"repo: https://github.com/gitleaks/gitleaks",
+			"repo: https://github.com/golangci/golangci-lint",
+		},
+		".githooks/pre-commit": {
+			"UniStorage Pre-Commit Hook",
+			"gofmt",
+		},
+		"docs/repository-setup.md": {
+			"UniStorage GitHub Repository Setup & Maintainer Guide",
+			"Branch Protection Rules",
+			"First Release Tagging Workflow",
+		},
+	}
+
+	for relPath, patterns := range requiredFiles {
+		fullPath := filepath.Join(root, filepath.FromSlash(relPath))
+		contentBytes, err := os.ReadFile(fullPath)
+		if err != nil {
+			t.Errorf("missing required open-source health file: %s (%v)", relPath, err)
+			continue
+		}
+		content := string(contentBytes)
+		for _, pat := range patterns {
+			if !strings.Contains(content, pat) {
+				t.Errorf("file %s missing required content pattern %q", relPath, pat)
+			}
+		}
+	}
+}
+

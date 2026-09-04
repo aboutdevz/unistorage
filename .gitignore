@@ -105,3 +105,4 @@ testdata/fuzz/
 *.tmp.*
 *.pid
 release-artifacts/
+docs/repository-setup.md

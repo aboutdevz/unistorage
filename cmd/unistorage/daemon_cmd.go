@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"net"
 	"net/http"
@@ -76,6 +77,7 @@ func runDaemonStart(cliCtx *CLIContext, args []string, flags map[string]string, 
 			TokenFile:       cliCtx.TokenPath(),
 			VaultPath:       cliCtx.VaultPath(),
 			VaultPassphrase: cliCtx.VaultPassphrase,
+			Version:         Version,
 		})
 		if err != nil {
 			return NewCLIError(ExitIOError, "failed to initialize daemon server", err)
@@ -151,9 +153,17 @@ func runDaemonStatus(cliCtx *CLIContext, args []string, flags map[string]string,
 	healthURL := fmt.Sprintf("%s/api/v1/health", cliCtx.DaemonAddr)
 	req, _ := http.NewRequest(http.MethodGet, healthURL, nil)
 
+	daemonVersion := Version
 	resp, hErr := client.Do(req)
 	isOnline := hErr == nil && resp.StatusCode == http.StatusOK
 	if resp != nil {
+		var healthResp struct {
+			Status  string `json:"status"`
+			Version string `json:"version"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&healthResp); err == nil && healthResp.Version != "" {
+			daemonVersion = healthResp.Version
+		}
 		_ = resp.Body.Close()
 	}
 
@@ -163,6 +173,13 @@ func runDaemonStatus(cliCtx *CLIContext, args []string, flags map[string]string,
 		if req2, err := http.NewRequest(http.MethodGet, healthURL2, nil); err == nil {
 			if resp2, err := client.Do(req2); err == nil && resp2.StatusCode == http.StatusOK {
 				isOnline = true
+				var healthResp struct {
+					Status  string `json:"status"`
+					Version string `json:"version"`
+				}
+				if err := json.NewDecoder(resp2.Body).Decode(&healthResp); err == nil && healthResp.Version != "" {
+					daemonVersion = healthResp.Version
+				}
 				_ = resp2.Body.Close()
 			}
 		}
@@ -172,7 +189,7 @@ func runDaemonStatus(cliCtx *CLIContext, args []string, flags map[string]string,
 		"status":  "running",
 		"pid":     pid,
 		"addr":    cliCtx.DaemonAddr,
-		"version": "0.1.0",
+		"version": daemonVersion,
 	}
 	if !isOnline {
 		statusMap["status"] = "offline"
@@ -183,7 +200,7 @@ func runDaemonStatus(cliCtx *CLIContext, args []string, flags map[string]string,
 	}
 
 	if isOnline {
-		fmt.Printf("Daemon Status: RUNNING\n  PID:     %d\n  Address: %s\n  Version: 0.1.0\n", pid, cliCtx.DaemonAddr)
+		fmt.Printf("Daemon Status: RUNNING\n  PID:     %d\n  Address: %s\n  Version: %s\n", pid, cliCtx.DaemonAddr, daemonVersion)
 	} else {
 		fmt.Printf("Daemon Status: OFFLINE (PID %d not responding)\n", pid)
 	}
