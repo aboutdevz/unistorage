@@ -44,10 +44,11 @@ func BackupConflict(ctx context.Context, destDriver storage.Driver, relPath stri
 	// Handle case where conflictDir is an absolute local filesystem path
 	if filepath.IsAbs(conflictDir) {
 		destFile := filepath.Join(conflictDir, filepath.FromSlash(normalized)+"."+timestamp+".conflict")
-		if err := os.MkdirAll(filepath.Dir(destFile), 0755); err != nil {
+		if err := os.MkdirAll(filepath.Dir(destFile), 0750); err != nil {
 			return "", fmt.Errorf("conflict backup aborted: cannot create conflict directory %q: %w", filepath.Dir(destFile), err)
 		}
-		f, err := os.OpenFile(destFile, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+		// #nosec G302, G304 -- conflict file written to isolated directory with restricted permissions
+		f, err := os.OpenFile(destFile, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
 		if err != nil {
 			return "", fmt.Errorf("conflict backup aborted: cannot create conflict backup file %q: %w", destFile, err)
 		}

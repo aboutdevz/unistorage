@@ -169,6 +169,7 @@ func (v *FileVault) loadStore(passphrase []byte) (map[string]RemoteProfile, erro
 
 // saveStore encrypts and writes the vault storage map to disk with 0600 permissions.
 func (v *FileVault) saveStore(passphrase []byte, store map[string]RemoteProfile) error {
+	// #nosec G117 -- plaintext remote profile is marshaled strictly to be encrypted by AES-256-GCM
 	plaintext, err := json.Marshal(store)
 	if err != nil {
 		return fmt.Errorf("failed to marshal vault store: %w", err)
