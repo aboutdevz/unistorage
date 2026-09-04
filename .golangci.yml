@@ -1,0 +1,49 @@
+run:
+  timeout: 5m
+  go: '1.22'
+  tests: true
+  skip-dirs:
+    - vendor
+    - testdata
+    - .agents
+    - bin
+
+linters-settings:
+  gosec:
+    severity: medium
+    confidence: medium
+    excludes:
+      - G104 # Audit unhandled errors (handled via errcheck)
+  errcheck:
+    check-type-assertions: true
+    check-blank: true
+  govet:
+    check-shadowing: true
+    enable-all: true
+  revive:
+    rules:
+      - name: exported
+        disabled: false
+      - name: var-naming
+        disabled: false
+  gocritic:
+    enabled-tags:
+      - diagnostic
+      - style
+      - performance
+      - security
+
+linters:
+  enable:
+    - gosec          # AST-based security auditing
+    - errcheck       # Ensure errors are checked
+    - ineffassign    # Detect ineffectual assignments
+    - staticcheck    # Advanced Go static analysis
+    - unused         # Find unused variables/functions
+    - govet          # Official Go vet checks
+    - revive         # Fast, configurable linter
+    - gocritic       # Micro-optimizations & code bugs
+    - bodyclose      # Ensure HTTP response bodies are closed
+    - noctx          # Prevent HTTP requests without context
+    - prealloc       # Slice preallocation hints
+    - exportloopref  # Detect loop variable pointer capture
