@@ -326,8 +326,8 @@ func (w *WebhookDispatcher) Dispatch(ctx context.Context, payload *AlertPayload)
 		if err != nil {
 			lastErr = err
 		} else {
-			io.Copy(io.Discard, resp.Body)
-			resp.Body.Close()
+			_, _ = io.Copy(io.Discard, resp.Body) // #nosec G104 -- draining response body
+			_ = resp.Body.Close()                 // #nosec G104 -- closing response body
 
 			if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 				// Successful delivery

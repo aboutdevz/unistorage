@@ -44,12 +44,15 @@ type Server struct {
 	listener   net.Listener
 }
 
+// DefaultTokenFileName is the canonical filename for the daemon authentication token.
+const DefaultTokenFileName = "daemon.token"
+
 // DefaultConfig returns safe default configuration bound to loopback 127.0.0.1:8080.
 func DefaultConfig() Config {
 	home, _ := os.UserHomeDir()
 	return Config{
 		Addr:            "127.0.0.1:8080",
-		TokenFile:       filepath.Join(home, ".unistorage", "daemon.token"),
+		TokenFile:       filepath.Join(home, ".unistorage", DefaultTokenFileName),
 		VaultPath:       filepath.Join(home, ".unistorage", "vault.enc"),
 		VaultPassphrase: "unistorage-default-passphrase",
 	}
@@ -151,11 +154,11 @@ func (s *Server) initToken() error {
 	}
 
 	// Generate 32 bytes (256 bits) of CSPRNG entropy
-	var tokenBytes [32]byte
-	if _, err := io.ReadFull(rand.Reader, tokenBytes[:]); err != nil {
-		return fmt.Errorf("failed to generate random token: %w", err)
+	tok, err := GenerateToken()
+	if err != nil {
+		return err
 	}
-	s.token = hex.EncodeToString(tokenBytes[:])
+	s.token = tok
 
 	// Ensure parent directory exists
 	if err := os.MkdirAll(filepath.Dir(s.cfg.TokenFile), 0700); err != nil {
@@ -168,6 +171,15 @@ func (s *Server) initToken() error {
 	}
 
 	return nil
+}
+
+// GenerateToken generates 32 bytes (256 bits) of CSPRNG entropy encoded as 64 hex characters.
+func GenerateToken() (string, error) {
+	var tokenBytes [32]byte
+	if _, err := io.ReadFull(rand.Reader, tokenBytes[:]); err != nil {
+		return "", fmt.Errorf("failed to generate random token: %w", err)
+	}
+	return hex.EncodeToString(tokenBytes[:]), nil
 }
 
 // Start binds to the configured loopback address and serves HTTP requests.

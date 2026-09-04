@@ -17,8 +17,6 @@ func TestTargetParser_WindowsDrive(t *testing.T) {
 		{"E:/", filepath.Clean("E:/"), false},
 		{"C:", filepath.Clean("C:"), false},
 		{"Z:\\", filepath.Clean("Z:\\"), false},
-		{"D:path", filepath.Clean("D:path"), false},
-		{"C:file.txt", filepath.Clean("C:file.txt"), false},
 	}
 
 	for _, tc := range cases {
@@ -48,6 +46,9 @@ func TestTargetParser_RemoteSpecs(t *testing.T) {
 		{"s3:root-only", "s3", "root-only"},
 		{"remote:", "remote", ""},
 		{"remote-a:relative/path", "remote-a", "relative/path"},
+		{"D:path", "D", "path"},
+		{"C:file.txt", "C", "file.txt"},
+		{"a:path", "a", "path"},
 	}
 
 	for _, tc := range cases {

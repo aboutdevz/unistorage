@@ -31,6 +31,10 @@ func ResolveTarget(ctx context.Context, cliCtx *CLIContext, targetStr string, is
 	}
 
 	if !loc.IsRemote {
+		// Defense-in-depth: reject Windows drive-relative paths (e.g. C:file) which escape sandbox confinement
+		if filepath.VolumeName(loc.Path) != "" && !filepath.IsAbs(loc.Path) {
+			return nil, NewCLIError(ExitParamError, fmt.Sprintf("drive-relative paths are forbidden: %s", loc.Path))
+		}
 		// Local filesystem path
 		absPath, err := filepath.Abs(loc.Path)
 		if err != nil {
