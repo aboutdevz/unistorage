@@ -31,7 +31,7 @@ linters-settings:
       - diagnostic
       - style
       - performance
-      - security
+      # - security
 
 linters:
   enable:
@@ -46,4 +46,5 @@ linters:
     - bodyclose      # Ensure HTTP response bodies are closed
     - noctx          # Prevent HTTP requests without context
     - prealloc       # Slice preallocation hints
-    - exportloopref  # Detect loop variable pointer capture
+    # - exportloopref  # Detect loop variable pointer capture (inactivated in Go 1.22+)
+

@@ -1,4 +1,4 @@
-﻿package entitlement_test
+package entitlement_test
 
 import (
 	"context"

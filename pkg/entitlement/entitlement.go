@@ -1,4 +1,4 @@
-﻿package entitlement
+package entitlement
 
 import (
 	"context"
