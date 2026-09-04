@@ -34,12 +34,66 @@ func init() {
 	}
 }
 
+func findProjectRoot() string {
+	dir, err := os.Getwd()
+	if err != nil {
+		return ""
+	}
+	for {
+		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
+			return dir
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return ""
+		}
+		dir = parent
+	}
+}
+
+func ensureBinary(t *testing.T) string {
+	t.Helper()
+	if binPath != "" {
+		if _, err := os.Stat(binPath); err == nil {
+			return binPath
+		}
+	}
+	exeName := "unistorage"
+	if runtime.GOOS == "windows" {
+		exeName = "unistorage.exe"
+	}
+	candidates := []string{
+		filepath.Join("..", "..", "bin", exeName),
+		filepath.Join("..", "..", exeName),
+		filepath.Join(".", exeName),
+	}
+	for _, c := range candidates {
+		if abs, err := filepath.Abs(c); err == nil {
+			if _, err := os.Stat(abs); err == nil {
+				binPath = abs
+				return binPath
+			}
+		}
+	}
+	root := findProjectRoot()
+	if root != "" {
+		target := filepath.Join(root, "bin", exeName)
+		_ = os.MkdirAll(filepath.Dir(target), 0750)
+		buildCmd := exec.Command("go", "build", "-o", target, "./cmd/unistorage")
+		buildCmd.Dir = root
+		if err := buildCmd.Run(); err == nil {
+			binPath = target
+			return binPath
+		}
+	}
+	t.Fatal("unistorage binary not found, compile it first with 'go build -o unistorage.exe ./cmd/unistorage'")
+	return ""
+}
+
 func runBinary(t *testing.T, args ...string) (stdout string, stderr string, exitCode int) {
 	t.Helper()
-	if binPath == "" {
-		t.Fatal("unistorage binary not found, compile it first with 'go build -o unistorage.exe ./cmd/unistorage'")
-	}
-	cmd := exec.Command(binPath, args...)
+	bp := ensureBinary(t)
+	cmd := exec.Command(bp, args...)
 	var outBuf, errBuf bytes.Buffer
 	cmd.Stdout = &outBuf
 	cmd.Stderr = &errBuf

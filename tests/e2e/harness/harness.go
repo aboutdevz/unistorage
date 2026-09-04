@@ -66,6 +66,23 @@ func NewHarness(t *testing.T) *Harness {
 	return h
 }
 
+func findProjectRoot() string {
+	dir, err := os.Getwd()
+	if err != nil {
+		return ""
+	}
+	for {
+		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
+			return dir
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return ""
+		}
+		dir = parent
+	}
+}
+
 func findBinary(t *testing.T) string {
 	t.Helper()
 	candidates := []string{
@@ -90,6 +107,24 @@ func findBinary(t *testing.T) string {
 	if p, err := exec.LookPath("unistorage"); err == nil {
 		return p
 	}
+
+	// Auto-compile binary if not found
+	root := findProjectRoot()
+	if root != "" {
+		ext := ""
+		if runtime.GOOS == "windows" {
+			ext = ".exe"
+		}
+		target := filepath.Join(root, "bin", "unistorage"+ext)
+		_ = os.MkdirAll(filepath.Dir(target), 0750)
+		// #nosec G204 -- test harness compiles local CLI binary
+		buildCmd := exec.Command("go", "build", "-o", target, "./cmd/unistorage")
+		buildCmd.Dir = root
+		if err := buildCmd.Run(); err == nil {
+			return target
+		}
+	}
+
 	return ""
 }
 
@@ -100,10 +135,12 @@ func (h *Harness) RunCLI(ctx context.Context, args ...string) *CLIResult {
 
 	var cmd *exec.Cmd
 	if h.BinaryPath != "" {
+		// #nosec G204 -- test harness executes local CLI binary
 		cmd = exec.CommandContext(ctx, h.BinaryPath, args...)
 	} else {
 		// Fallback to go run if binary is not yet compiled
 		goArgs := append([]string{"run", "./cmd/unistorage"}, args...)
+		// #nosec G204 -- test harness executes go run
 		cmd = exec.CommandContext(ctx, "go", goArgs...)
 	}
 
@@ -139,10 +176,10 @@ func (h *Harness) RunCLI(ctx context.Context, args ...string) *CLIResult {
 func (h *Harness) CreateFile(relPath string, content []byte) string {
 	h.t.Helper()
 	fullPath := filepath.Join(h.RootDir, relPath)
-	if err := os.MkdirAll(filepath.Dir(fullPath), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(fullPath), 0750); err != nil {
 		h.t.Fatalf("failed to create directory for file %s: %v", relPath, err)
 	}
-	if err := os.WriteFile(fullPath, content, 0644); err != nil {
+	if err := os.WriteFile(fullPath, content, 0600); err != nil {
 		h.t.Fatalf("failed to write file %s: %v", relPath, err)
 	}
 	return fullPath
@@ -152,6 +189,7 @@ func (h *Harness) CreateFile(relPath string, content []byte) string {
 func (h *Harness) ReadFile(relPath string) []byte {
 	h.t.Helper()
 	fullPath := filepath.Join(h.RootDir, relPath)
+	// #nosec G304 -- test harness reads file within isolated root dir
 	data, err := os.ReadFile(fullPath)
 	if err != nil {
 		h.t.Fatalf("failed to read file %s: %v", relPath, err)
@@ -169,6 +207,7 @@ func (h *Harness) FileExists(relPath string) bool {
 // GetToken reads the daemon Bearer token from the isolated config directory.
 func (h *Harness) GetToken() (string, error) {
 	tokenPath := filepath.Join(h.ConfigDir, "daemon.token")
+	// #nosec G304 -- test harness reads daemon token within isolated config dir
 	data, err := os.ReadFile(tokenPath)
 	if err != nil {
 		return "", err

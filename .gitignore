@@ -104,5 +104,4 @@ testdata/fuzz/
 # UniStorage Atomic Runtime Temp
 *.tmp.*
 *.pid
-release-artifacts/
-docs/repository-setup.md
+release-artifacts/

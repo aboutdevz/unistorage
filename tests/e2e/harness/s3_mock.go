@@ -2,7 +2,7 @@ package harness
 
 import (
 	"bytes"
-	"crypto/md5"
+	"crypto/md5" // #nosec G501 -- mock S3 server calculates standard RFC-compliant S3 MD5 ETags
 	"encoding/hex"
 	"encoding/xml"
 	"fmt"
@@ -160,6 +160,7 @@ func (s *S3MockServer) handlePutObject(w http.ResponseWriter, r *http.Request, b
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
+	// #nosec G401 -- mock S3 server requires standard MD5 for ETag
 	hash := md5.Sum(data)
 	etag := hex.EncodeToString(hash[:])
 
@@ -182,6 +183,7 @@ func (s *S3MockServer) handleGetObject(w http.ResponseWriter, bucket, key string
 		return
 	}
 
+	// #nosec G401 -- mock S3 server requires standard MD5 for ETag
 	hash := md5.Sum(data)
 	w.Header().Set("ETag", `"`+hex.EncodeToString(hash[:])+`"`)
 	w.Header().Set("Content-Length", strconv.Itoa(len(data)))
@@ -200,6 +202,7 @@ func (s *S3MockServer) handleHeadObject(w http.ResponseWriter, bucket, key strin
 		return
 	}
 
+	// #nosec G401 -- mock S3 server requires standard MD5 for ETag
 	hash := md5.Sum(data)
 	w.Header().Set("ETag", `"`+hex.EncodeToString(hash[:])+`"`)
 	w.Header().Set("Content-Length", strconv.Itoa(len(data)))
@@ -239,6 +242,7 @@ func (s *S3MockServer) handleListObjects(w http.ResponseWriter, r *http.Request,
 	if b, ok := s.buckets[bucket]; ok {
 		for k, v := range b {
 			if strings.HasPrefix(k, prefix) {
+				// #nosec G401 -- mock S3 server requires standard MD5 for ETag
 				hash := md5.Sum(v)
 				objects = append(objects, S3Object{
 					Key:          k,
@@ -316,6 +320,7 @@ func (s *S3MockServer) handleUploadPart(w http.ResponseWriter, r *http.Request, 
 	parts[partNum] = data
 	s.mu.Unlock()
 
+	// #nosec G401 -- mock S3 server requires standard MD5 for ETag
 	hash := md5.Sum(data)
 	w.Header().Set("ETag", `"`+hex.EncodeToString(hash[:])+`"`)
 	w.WriteHeader(http.StatusOK)
@@ -345,6 +350,7 @@ func (s *S3MockServer) handleCompleteMultipart(w http.ResponseWriter, r *http.Re
 	s.buckets[bucket][key] = data
 	s.mu.Unlock()
 
+	// #nosec G401 -- mock S3 server requires standard MD5 for ETag
 	hash := md5.Sum(data)
 	etag := hex.EncodeToString(hash[:])
 

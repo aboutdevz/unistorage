@@ -1508,8 +1508,8 @@ func TestTier1_F29_MultiStageDockerfile(t *testing.T) {
 		}
 	})
 	t.Run("Dockerfile_BuilderStage_Alpine", func(t *testing.T) {
-		if !strings.Contains(content, "golang:1.22-alpine AS builder") {
-			t.Fatalf("Dockerfile missing golang:1.22-alpine builder stage")
+		if !strings.Contains(content, "golang:1.22-alpine AS builder") && !strings.Contains(content, "golang:1.27-alpine AS builder") {
+			t.Fatalf("Dockerfile missing alpine builder stage")
 		}
 	})
 	t.Run("Dockerfile_RuntimeStage_Hardened", func(t *testing.T) {

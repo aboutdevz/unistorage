@@ -29,11 +29,19 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.22'
+          go-version-file: 'go.mod'
           cache: true
 
+      - name: Build Binary
+        run: go build -o bin/unistorage ./cmd/unistorage
+
       - name: Run Tests with Race Detector
+        if: matrix.os != 'windows-latest'
         run: go test -v -race -coverprofile=coverage.txt -covermode=atomic ./...
+
+      - name: Run Tests on Windows
+        if: matrix.os == 'windows-latest'
+        run: go test -v -coverprofile=coverage.txt -covermode=atomic ./...
 
       - name: Upload Coverage
         if: matrix.os == 'ubuntu-latest'
@@ -55,12 +63,12 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.22'
+          go-version-file: 'go.mod'
 
       - name: Run Golangci-lint
         uses: golangci/golangci-lint-action@v6
         with:
-          version: v1.58
+          version: latest
           args: --timeout=5m --config=.golangci.yml
 
       - name: Run Standalone Gosec
@@ -87,11 +95,12 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.22'
+          go-version-file: 'go.mod'
 
       - name: Install and Run govulncheck
         run: |
           go install golang.org/x/vuln/cmd/govulncheck@latest
+          export PATH="$PATH:$(go env GOPATH)/bin"
           govulncheck ./...
 
   # ----------------------------------------------------------------------------
@@ -125,7 +134,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.22'
+          go-version-file: 'go.mod'
 
       - name: Run Fuzz Test (30 Seconds)
         run: go test -v -fuzz=FuzzPathSanitizer -fuzztime=30s ./pkg/storage/local
@@ -153,8 +162,8 @@ jobs:
 
       - name: Verify Non-Root User Execution
         run: |
-          USER_ID=$(docker run --rm unistorage:test id -u)
-          GROUP_ID=$(docker run --rm unistorage:test id -g)
+          USER_ID=$(docker run --rm --entrypoint id unistorage:test -u)
+          GROUP_ID=$(docker run --rm --entrypoint id unistorage:test -g)
           echo "Container User: $USER_ID, Group: $GROUP_ID"
           if [ "$USER_ID" -ne 10001 ] || [ "$GROUP_ID" -ne 10001 ]; then
             echo "SECURITY FAILURE: Container is not running as 10001:10001"

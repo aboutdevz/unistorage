@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/aboutdevz/unistorage/pkg/storage"
 )
@@ -129,7 +130,15 @@ func (p *PathSanitizer) Sanitize(userPath string) (string, error) {
 func (p *PathSanitizer) verifySymlinkConfinement(targetPath string) error {
 	curr := targetPath
 	for {
-		fi, err := os.Lstat(curr)
+		var fi os.FileInfo
+		var err error
+		for attempt := 0; attempt < 5; attempt++ {
+			fi, err = os.Lstat(curr)
+			if err == nil || errors.Is(err, os.ErrNotExist) {
+				break
+			}
+			time.Sleep(time.Duration(5*(attempt+1)) * time.Millisecond)
+		}
 		if err == nil {
 			if fi.Mode()&os.ModeSymlink != 0 {
 				resolved, err := filepath.EvalSymlinks(curr)

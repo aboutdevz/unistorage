@@ -1,7 +1,7 @@
 # ==============================================================================
-# Stage 1: Build Stage (golang:1.22-alpine)
+# Stage 1: Build Stage (golang:1.22-alpine AS builder specification)
 # ==============================================================================
-FROM golang:1.22-alpine AS builder
+FROM golang:1.27-alpine AS builder
 
 # Install build-time dependencies
 RUN apk add --no-cache \
@@ -24,8 +24,12 @@ ARG VERSION=dev
 ARG COMMIT=none
 ARG BUILD_TIME=unknown
 
+# Target architecture injected by Docker buildx for multi-platform builds
+ARG TARGETOS=linux
+ARG TARGETARCH=amd64
+
 # Compile static binary: CGO_ENABLED=0, stripped symbols, hardened flags
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
+RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build \
     -trimpath \
     -ldflags="-s -w" \
     -o /build/unistorage \

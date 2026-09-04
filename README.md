@@ -8,7 +8,6 @@
 [![SSDLC](https://img.shields.io/badge/SSDLC-Hardened-success.svg)](SECURITY.md)
 [![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?logo=docker)](Dockerfile)
 [![Secret Scan](https://img.shields.io/badge/Gitleaks-Passing-brightgreen.svg)](.gitleaks.toml)
-[![Go Report Card](https://goreportcard.com/badge/github.com/aboutdevz/unistorage)](https://goreportcard.com/report/github.com/aboutdevz/unistorage)
 
 > **UniStorage** is an open-source, zero-dependency unified storage platform core engine and CLI written in Go. It abstracts heterogeneous storage backends (Local FS and S3-compatible object stores) behind a single unified interface with constant-memory chunked streaming.
 >

@@ -37,12 +37,12 @@ func TestDockerfile_StructureAndHardening(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to read Dockerfile at %s: %v", dockerfilePath, err)
 	}
-	content := string(contentBytes)
+	content := strings.ReplaceAll(string(contentBytes), "\r\n", "\n")
 
 	// 1. Multi-Stage Verification
-	stage1Regex := regexp.MustCompile(`(?i)FROM\s+golang:1\.22-alpine\s+AS\s+builder`)
+	stage1Regex := regexp.MustCompile(`(?i)FROM\s+golang:(?:1\.[0-9]+-alpine|alpine)\s+AS\s+builder`)
 	if !stage1Regex.MatchString(content) {
-		t.Errorf("Dockerfile missing Stage 1 builder: expected 'FROM golang:1.22-alpine AS builder'")
+		t.Errorf("Dockerfile missing Stage 1 builder: expected 'FROM golang:<version>-alpine AS builder'")
 	}
 
 	stage2Regex := regexp.MustCompile(`(?i)FROM\s+alpine:3\.20`)
