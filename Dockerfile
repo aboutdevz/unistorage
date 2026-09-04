@@ -45,7 +45,7 @@ RUN mkdir -p /build/config /build/data /build/tmp && \
 # ==============================================================================
 # Stage 2: Runtime Stage (Hardened Minimal alpine:3.20)
 # ==============================================================================
-FROM alpine:3.20
+FROM alpine:3.24
 
 # Install runtime security certificates and timezone definitions
 RUN apk add --no-cache \
