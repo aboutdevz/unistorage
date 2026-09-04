@@ -31,6 +31,7 @@ type Config struct {
 	VaultPath       string
 	VaultPassphrase string
 	StaticToken     string
+	Version         string
 }
 
 // Server is the UniStorage local daemon HTTP server.
@@ -304,9 +305,13 @@ func (s *Server) writeJSONError(w http.ResponseWriter, statusCode int, errType s
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
+	v := s.cfg.Version
+	if v == "" {
+		v = "0.1.0"
+	}
 	s.writeJSON(w, http.StatusOK, map[string]string{
 		"status":  "ok",
-		"version": "0.1.0",
+		"version": v,
 	})
 }
 

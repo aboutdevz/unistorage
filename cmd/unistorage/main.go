@@ -7,8 +7,6 @@ import (
 	"strings"
 )
 
-const AppVersion = "0.1.0"
-
 var knownValueFlags = map[string]bool{
 	"config":           true,
 	"data":             true,
@@ -154,6 +152,7 @@ Available Commands:
   daemon start [flags]               Start loopback background daemon (--port, --addr, --foreground)
   daemon status [--json]             Check daemon process status and probe health API
   daemon stop                        Stop running background daemon
+  version [--json]                   Show unistorage version and build metadata
 
 Global Flags:
   --config <path>                    Base directory for vault and tokens (default: ~/.unistorage)
@@ -293,7 +292,7 @@ func runMain() int {
 	}
 
 	if boolFlags["version"] {
-		fmt.Printf("unistorage version %s\n", AppVersion)
+		printVersion(boolFlags["json"])
 		return ExitSuccess
 	}
 
@@ -345,7 +344,7 @@ func runMain() int {
 	case "daemon":
 		execErr = RunDaemon(cliCtx, cmdArgs, flags, boolFlags)
 	case "version":
-		fmt.Printf("unistorage version %s\n", AppVersion)
+		printVersion(boolFlags["json"])
 		return ExitSuccess
 	default:
 		fmt.Fprintf(os.Stderr, "Error: unknown command %q. Run 'unistorage --help' for usage.\n", cmd)

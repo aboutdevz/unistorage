@@ -1,0 +1,46 @@
+#!/bin/sh
+# ==============================================================================
+# UniStorage Pre-Commit Hook
+# Prevents unformatted code, forbidden secrets, and syntax errors from being committed.
+# Setup: git config core.hooksPath .githooks
+# ==============================================================================
+
+set -e
+
+echo "==> [UniStorage Pre-Commit] Running hygiene checks..."
+
+# 1. Check for forbidden files accidentally staged (secrets, tokens, databases)
+FORBIDDEN_PATTERNS="vault\.db|\.token$|\.enc$|\.key$|\.pem$|\.env"
+STAGED_FILES=$(git diff --cached --name-only)
+
+for file in $STAGED_FILES; do
+    if echo "$file" | grep -E -q "$FORBIDDEN_PATTERNS"; then
+        echo "❌ ERROR: Attempting to commit potentially sensitive or ignored file: $file"
+        echo "Please unstage this file using: git reset HEAD $file"
+        exit 1
+    fi
+done
+
+# 2. Check Go code formatting with gofmt
+UNFORMATTED=$(gofmt -l $(git diff --cached --name-only --diff-filter=ACM | grep '\.go$' || true))
+if [ -n "$UNFORMATTED" ]; then
+    echo "❌ ERROR: The following Go files are not formatted with 'gofmt -s':"
+    echo "$UNFORMATTED"
+    echo "Run 'gofmt -s -w .' to fix."
+    exit 1
+fi
+
+# 3. If gitleaks is installed locally, scan staged files
+if command -v gitleaks >/dev/null 2>&1; then
+    echo "==> Running local gitleaks secret detection..."
+    gitleaks protect --staged --config .gitleaks.toml --verbose
+fi
+
+# 4. If golangci-lint is installed locally, run fast lint
+if command -v golangci-lint >/dev/null 2>&1; then
+    echo "==> Running fast linter check..."
+    golangci-lint run --fast
+fi
+
+echo "✅ [UniStorage Pre-Commit] All checks passed."
+exit 0

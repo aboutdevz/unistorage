@@ -70,6 +70,35 @@ func TestDaemon_Health(t *testing.T) {
 	if w2.Code != http.StatusOK {
 		t.Fatalf("expected 200 OK, got %d", w2.Code)
 	}
+
+	var payload map[string]string
+	if err := json.Unmarshal(w2.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("failed to decode health payload: %v", err)
+	}
+	if payload["status"] != "ok" {
+		t.Errorf("expected status ok, got %q", payload["status"])
+	}
+	if payload["version"] == "" {
+		t.Errorf("expected non-empty version in health payload")
+	}
+
+	// 3. Health with configured version
+	customSrv, err := daemon.New(daemon.Config{
+		StaticToken: "test-custom-token",
+		Version:     "v1.2.3",
+	})
+	if err != nil {
+		t.Fatalf("failed to create custom daemon: %v", err)
+	}
+	w3 := httptest.NewRecorder()
+	customSrv.Handler().ServeHTTP(w3, newReq(http.MethodGet, "/api/v1/health", nil))
+	var customPayload map[string]string
+	if err := json.Unmarshal(w3.Body.Bytes(), &customPayload); err != nil {
+		t.Fatalf("failed to decode custom health payload: %v", err)
+	}
+	if customPayload["version"] != "v1.2.3" {
+		t.Errorf("expected custom version 'v1.2.3', got %q", customPayload["version"])
+	}
 }
 
 func TestDaemon_Auth(t *testing.T) {

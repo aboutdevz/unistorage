@@ -1,0 +1,21 @@
+# GitHub Code Owners for UniStorage
+# See: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+# Global default owners for all repository components
+* @aboutdevz/core-maintainers
+
+# Cryptographic and Credential Vault subsystem
+/pkg/vault/ @aboutdevz/security-team
+
+# Loopback HTTP Daemon and Host Validation
+/internal/daemon/ @aboutdevz/core-maintainers
+
+# Entitlement Boundary and Open-Core Hooking
+/pkg/entitlement/ @aboutdevz/core-maintainers
+
+# Storage Drivers and Path Sanitization
+/pkg/storage/ @aboutdevz/core-maintainers
+
+# GitHub Actions Workflows & CI/CD Pipelines
+/.github/workflows/ @aboutdevz/devops-team
+/.github/ @aboutdevz/devops-team
