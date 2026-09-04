@@ -1,0 +1,48 @@
+title = "UniStorage Secret Detection Configuration"
+
+[extend]
+useDefault = true
+
+# UniStorage Daemon Bearer Token (64-character hexadecimal)
+[[rules]]
+id = "unistorage-bearer-token"
+description = "Detected UniStorage Daemon Bearer Token"
+regex = '''(?i)(?:unistorage[_-]?token|bearer[_-]?token)[\s:=]+["']?([a-f0-9]{64})["']?'''
+secretGroup = 1
+keywords = ["unistorage", "token"]
+
+# MinIO / AWS Access Key ID
+[[rules]]
+id = "s3-access-key-id"
+description = "Detected S3 Access Key ID"
+regex = '''(?i)(?:aws_access_key_id|minio_root_user|s3_access_key)[\s:=]+["']?(AKIA[0-9A-Z]{16}|minioadmin|[a-zA-Z0-9]{20})["']?'''
+secretGroup = 1
+keywords = ["AKIA", "minioadmin", "access_key"]
+
+# MinIO / AWS Secret Key
+[[rules]]
+id = "s3-secret-access-key"
+description = "Detected S3 Secret Access Key"
+regex = '''(?i)(?:aws_secret_access_key|minio_root_password|s3_secret_key)[\s:=]+["']?([a-zA-Z0-9/+=]{40})["']?'''
+secretGroup = 1
+keywords = ["secret_key", "secret_access_key"]
+
+# Argon2id Salt & Key Material
+[[rules]]
+id = "argon2id-secret-param"
+description = "Detected Argon2id Passphrase or Seed"
+regex = '''(?i)(?:argon2id_passphrase|vault_master_key)[\s:=]+["']?([^'"\s]{12,})["']?'''
+secretGroup = 1
+keywords = ["argon2id", "vault_master_key"]
+
+[allowlist]
+description = "Whitelisted mock credentials for automated unit testing"
+paths = [
+  '''pkg/storage/s3/.*_test\.go''',
+  '''pkg/vault/.*_test\.go''',
+  '''docker-compose\.yml''',
+  '''tests/.*_test\.go'''
+]
+regexes = [
+  '''minioadmin'''
+]

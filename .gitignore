@@ -1,0 +1,87 @@
+# ==============================================================================
+# UniStorage - .gitignore
+# ==============================================================================
+
+# Binaries & Go Build Artifacts
+bin/
+dist/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+coverage.*
+coverage.html
+coverage.txt
+
+# UniStorage Runtime Data & Local Storage Mounts
+.unistorage/
+*.token
+*.vault
+daemon.token
+vault.db
+*.db
+*.enc
+data/
+tmp/
+.conflicts/
+testdata/local_storage/
+testdata/dest/
+testdata/source/
+
+# Docker Dev Volumes & Logs
+.minio_data/
+docker-data/
+*.log
+
+# AI Assistant, Agent Artifacts & Worktrees
+.gemini/
+.antigravity/
+.agent/
+.agents/
+brain/
+worktrees/
+*.plan.md
+prompt_draft.md
+implementation_plan.md
+walkthrough.md
+ORIGINAL_REQUEST.md
+PROJECT.md
+TEST_INFRA.md
+TEST_READY.md
+
+# SSH Keys & Configuration
+.ssh/
+id_rsa
+id_rsa.pub
+id_ed25519
+id_ed25519.pub
+id_ecdsa
+id_ecdsa.pub
+id_dsa
+id_dsa.pub
+id_*
+known_hosts
+authorized_keys
+
+# IDEs & System Files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Environment & Secrets
+.env
+.env*
+.env.*
+*.pem
+*.key
+*.cert
+*.crt
+credentials.json

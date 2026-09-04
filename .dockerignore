@@ -1,0 +1,87 @@
+# ==============================================================================
+# UniStorage .dockerignore
+# ==============================================================================
+
+# Version Control & Git Internals
+.git/
+.gitignore
+.gitattributes
+.gitmodules
+
+# AI Agent Workspaces, Artifacts & Prompt Logs
+.agents/
+.agent/
+.gemini/
+.antigravity/
+brain/
+worktrees/
+*.plan.md
+prompt_draft.md
+implementation_plan.md
+walkthrough.md
+
+# Build Artifacts & Binaries
+bin/
+dist/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+# Test Artifacts & Coverage
+coverage.html
+coverage.txt
+*.cover
+*.coverprofile
+testdata/local_storage/
+testdata/dest/
+testdata/source/
+
+# Local Secrets, Credentials & Tokens
+*.token
+*.vault
+daemon.token
+.unistorage/
+credentials.json
+.env
+.env.*
+*.pem
+*.key
+*.cert
+*.crt
+
+# SSH Keys & Configuration
+.ssh/
+id_rsa
+id_rsa.pub
+id_ed25519
+id_ed25519.pub
+id_ecdsa
+id_ecdsa.pub
+id_dsa
+id_dsa.pub
+id_*
+known_hosts
+authorized_keys
+
+
+# Local Dev Data & Temporary Mounts
+data/
+tmp/
+.conflicts/
+.minio_data/
+docker-data/
+*.log
+
+# IDE & OS Metadata
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+desktop.ini
