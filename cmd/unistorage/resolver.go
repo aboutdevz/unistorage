@@ -71,7 +71,7 @@ func ResolveTarget(ctx context.Context, cliCtx *CLIContext, targetStr string, is
 
 		isDir := mustBeDir || strings.HasSuffix(targetStr, "/") || strings.HasSuffix(targetStr, "\\")
 		if isDir {
-			if err := os.MkdirAll(absPath, 0755); err != nil {
+			if err := os.MkdirAll(absPath, 0750); err != nil {
 				return nil, NewCLIError(ExitIOError, "failed to create destination directory", err)
 			}
 			drv, err := local.New(absPath)
@@ -87,7 +87,7 @@ func ResolveTarget(ctx context.Context, cliCtx *CLIContext, targetStr string, is
 
 		// Destination file that does not exist yet: parent must exist
 		parent := filepath.Dir(absPath)
-		if err := os.MkdirAll(parent, 0755); err != nil {
+		if err := os.MkdirAll(parent, 0750); err != nil {
 			return nil, NewCLIError(ExitIOError, "failed to create destination parent directory", err)
 		}
 		drv, err := local.New(parent)

@@ -114,6 +114,7 @@ func NewCLIContext(flags map[string]string, boolFlags map[string]bool) *CLIConte
 		ctx.Token = envTok
 	} else {
 		tokenFile := filepath.Join(ctx.ConfigDir, "daemon.token")
+		// #nosec G304, G703 -- tokenFile path constructed from trusted config dir
 		if data, err := os.ReadFile(tokenFile); err == nil {
 			ctx.Token = strings.TrimSpace(string(data))
 		}

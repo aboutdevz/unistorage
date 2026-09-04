@@ -104,6 +104,7 @@ func runDaemonStart(cliCtx *CLIContext, args []string, flags map[string]string, 
 		"--vault-passphrase", cliCtx.VaultPassphrase,
 	}
 
+	// #nosec G204, G702 -- launching self executable with controlled arguments
 	cmd := exec.Command(selfExe, cmdArgs...)
 	cmd.Dir = cliCtx.ConfigDir
 	cmd.SysProcAttr = &syscall.SysProcAttr{}
@@ -116,6 +117,7 @@ func runDaemonStart(cliCtx *CLIContext, args []string, flags map[string]string, 
 	// Wait briefly for PID and health
 	pid := cmd.Process.Pid
 	_ = os.MkdirAll(cliCtx.ConfigDir, 0700)
+	// #nosec G304, G703 -- PID file written inside trusted config dir with 0600 permissions
 	_ = os.WriteFile(cliCtx.PIDPath(), []byte(strconv.Itoa(pid)+"\n"), 0600)
 
 	cliCtx.Log("Daemon started on %s (PID %d)", listenAddr, pid)

@@ -333,7 +333,12 @@ func (d *Driver) ListWithOptions(ctx context.Context, opts storage.ListOptions) 
 		input.Prefix = aws.String(keyPrefix)
 	}
 	if opts.MaxKeys > 0 {
-		input.MaxKeys = aws.Int32(int32(opts.MaxKeys))
+		maxK := opts.MaxKeys
+		if maxK > 10000 {
+			maxK = 10000
+		}
+		// #nosec G115 -- MaxKeys is capped and safe to convert
+		input.MaxKeys = aws.Int32(int32(maxK))
 	}
 	if opts.ContinuationToken != "" {
 		input.ContinuationToken = aws.String(opts.ContinuationToken)

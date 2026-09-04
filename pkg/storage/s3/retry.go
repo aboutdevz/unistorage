@@ -105,6 +105,7 @@ func ExecuteWithRetry(ctx context.Context, cfg RetryConfig, op func() error) err
 		backoff := math.Min(float64(cfg.MaxDelay), float64(cfg.BaseDelay)*multiplier)
 
 		// Full jitter: random sleep between 0 and backoff
+		// #nosec G404 -- backoff jitter does not require cryptographic entropy
 		jitteredSleep := time.Duration(rand.Float64() * backoff)
 
 		select {

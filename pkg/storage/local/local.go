@@ -30,7 +30,7 @@ func New(rootDir string) (*Driver, error) {
 	}
 
 	// Ensure root directory exists
-	if err := os.MkdirAll(sanitizer.CanonicalRoot(), 0755); err != nil {
+	if err := os.MkdirAll(sanitizer.CanonicalRoot(), 0750); err != nil {
 		return nil, fmt.Errorf("failed to create root dir %q: %w", sanitizer.CanonicalRoot(), err)
 	}
 
@@ -66,6 +66,7 @@ func (d *Driver) Read(ctx context.Context, path string) (io.ReadCloser, error) {
 		return nil, &storage.StorageError{Op: "read", Driver: "local", Path: path, Err: err}
 	}
 
+	// #nosec G304 -- fullPath is validated by SanitizePath against path traversal
 	f, err := os.Open(fullPath)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -110,7 +111,7 @@ func (d *Driver) WriteWithOptions(ctx context.Context, path string, r io.Reader,
 
 	// 1. Ensure parent directory exists
 	parentDir := filepath.Dir(fullPath)
-	if err := os.MkdirAll(parentDir, 0755); err != nil {
+	if err := os.MkdirAll(parentDir, 0750); err != nil {
 		return &storage.StorageError{Op: "write", Driver: "local", Path: path, Err: fmt.Errorf("failed to create parent dir: %w", err)}
 	}
 
@@ -122,7 +123,8 @@ func (d *Driver) WriteWithOptions(ctx context.Context, path string, r io.Reader,
 	tmpPath := fmt.Sprintf("%s.tmp.%s", fullPath, hex.EncodeToString(randBytes[:]))
 
 	// 3. Create temp file
-	tmpFile, err := os.OpenFile(tmpPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+	// #nosec G302, G304 -- temp file created with restrictive permissions in sanitized directory
+	tmpFile, err := os.OpenFile(tmpPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
 	if err != nil {
 		return &storage.StorageError{Op: "write", Driver: "local", Path: path, Err: fmt.Errorf("failed to create temp file: %w", err)}
 	}
