@@ -16,9 +16,9 @@
 - **Hardened Local Daemon**: API daemon loopback (`127.0.0.1:8080`) yang dilindungi auto-generated Bearer token (`~/.unistorage/daemon.token`, mode `0600`) dan pertahanan anti-DNS-rebinding.
 - **Safe Synchronization (`unistorage sync`)**: Deteksi perubahan hybrid (Size + ModTime & flag `--checksum` SHA-256) dengan backup otomatis file konflik ke `.conflicts/`.
 - **Argon2id Encrypted Vault**: Kredensial access key dan secret token remote disimpan terenkripsi dengan AES-256-GCM.
-- **Open-Core Enterprise Extensions**:
-  - **Snapshot Backup Engine**: Backup otomatis terjadwal (cron), format pohon snapshot dengan `manifest.json`, lock mutex anti-double run, dan retensi $N$ snapshot otomatis.
-  - **Disk Health & Telemetry Probe**: Monitoring kapasitas disk lokal via OS syscall (`GetDiskFreeSpaceEx`/`Statfs`), probe latensi S3, endpoint `/metrics` Prometheus, serta JSON webhook alert dispatcher untuk status WARNING/CRITICAL.
+- **Open-Core Architecture**:
+  - **OSS Core (`pkg/entitlement`)**: Kontrak antarmuka `EntitlementChecker`, fallback `CommunityChecker` unencumbered, dan hooking build tag `//go:build enterprise`.
+  - **Commercial Extensions (Private Repo)**: Fitur enterprise (Snapshot Backup Engine, Disk Health & Telemetry Probe, Webhook Alerts, Ed25519 License Validation) diisolasi 100% pada repository privat terpisah demi proteksi IP dan kepatuhan dual-licensing.
 - **SSDLC (Secure Software Development LifeCycle)**: Pipeline CI otomatis yang mencakup SAST (`gosec`, `golangci-lint`), SCA (`govulncheck`), Secret scanner (`gitleaks`), Go Native Fuzzing (`FuzzPathSanitizer`), SBOM CycloneDX, dan penandatanganan Cosign.
 - **Docker-Ready**: Multi-stage non-root distroless container untuk production dan `docker-compose.yml` untuk development lokal (terintegrasi dengan MinIO mock S3).
 
@@ -37,18 +37,18 @@
     │                          UniStorage Core Daemon                           │
     │                    (internal/daemon - Port 8080/Unix)                     │
     │   • Auth Middleware (Bearer Token & Anti-DNS Rebinding)                   │
-    │   • Prometheus /metrics Exporter                                          │
     │   • REST API Controllers (/api/v1/...)                                    │
     ├─────────────────────────────────────┬─────────────────────────────────────┤
-    │         Open-Source Core            │      Modular Enterprise Layer       │
-    │         (pkg/storage)               │      (pkg/enterprise)               │
+    │         Open-Source Core            │      Commercial Extensions          │
+    │         (pkg/storage, sync, vault)  │      (Separate Private Repo)        │
     ├─────────────────────────────────────┼─────────────────────────────────────┤
     │ • Universal Driver Interface        │ • Snapshot Backup Engine            │
-    │ • Pluggable Driver Registry         │   (manifest.json, pruner, mutex)    │
-    │ • Local FS Driver (anti-traversal)  │ • Health & Uptime Probe             │
-    │ • S3 Multipart Driver (>16MB chunk) │   (Syscall disk stats, S3 ping)     │
-    │ • Argon2id + AES-256-GCM Vault      │ • Webhook Alert Dispatcher          │
-    │ • Hybrid Sync Engine (Size/SHA256)  │ • Feature-Gate Entitlement Checker  │
+    │ • Local FS Driver (anti-traversal)  │   (manifest.json, pruner, mutex)    │
+    │ • S3 Multipart Driver (>16MB chunk) │ • Health & Uptime Probe             │
+    │ • Argon2id + AES-256-GCM Vault      │   (Syscall disk stats, S3 ping)     │
+    │ • Hybrid Sync Engine (Size/SHA256)  │ • Webhook Alert Dispatcher          │
+    │ • Entitlement Boundary Contract     │ • Commercial License Validator      │
+    │   (pkg/entitlement CommunityChecker)│   (Ed25519 Signature Checker)       │
     └─────────────────────────────────────┴─────────────────────────────────────┘
                                         │
                     ┌───────────────────┴───────────────────┐

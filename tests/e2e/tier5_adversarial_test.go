@@ -13,7 +13,7 @@ import (
 	"testing"
 
 	"github.com/aboutdevz/unistorage/internal/daemon"
-	"github.com/aboutdevz/unistorage/pkg/enterprise/license"
+	"github.com/aboutdevz/unistorage/pkg/entitlement"
 	"github.com/aboutdevz/unistorage/tests/e2e/harness"
 )
 
@@ -336,17 +336,17 @@ func TestTier5_Vault_Credential_Isolation_At_Rest(t *testing.T) {
 
 // 7. Enterprise Feature Gate Enforcement
 func TestTier5_Enterprise_FeatureGate_Enforcement(t *testing.T) {
-	checker := license.NewCommunityChecker()
+	checker := entitlement.NewCommunityChecker()
 	ctx := context.Background()
 
 	// Verify community edition denies commercial features
-	if checker.IsFeatureEnabled(ctx, license.FeatureSnapshotBackup) {
+	if checker.IsFeatureEnabled(ctx, entitlement.FeatureSnapshotBackup) {
 		t.Errorf("expected FeatureSnapshotBackup to be FALSE for Community edition")
 	}
-	if checker.IsFeatureEnabled(ctx, license.FeatureTelemetryProbe) {
+	if checker.IsFeatureEnabled(ctx, entitlement.FeatureTelemetryProbe) {
 		t.Errorf("expected FeatureTelemetryProbe to be FALSE for Community edition")
 	}
-	if err := checker.Require(ctx, license.FeatureWebhookAlerts); err == nil {
+	if err := checker.Require(ctx, entitlement.FeatureWebhookAlerts); err == nil {
 		t.Errorf("expected Require(FeatureWebhookAlerts) to return error for Community edition")
 	}
 
@@ -354,7 +354,7 @@ func TestTier5_Enterprise_FeatureGate_Enforcement(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error getting license info: %v", err)
 	}
-	if info.Tier != license.TierCommunity {
+	if info.Tier != entitlement.TierCommunity {
 		t.Errorf("expected tier 'community', got %q", info.Tier)
 	}
 }

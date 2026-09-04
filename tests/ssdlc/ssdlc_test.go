@@ -432,7 +432,7 @@ func TestSTRIDEThreatModel_Content(t *testing.T) {
 		"pkg/storage/local",
 		"pkg/storage/s3",
 		"pkg/vault",
-		"pkg/enterprise/backup",
+		"pkg/entitlement",
 		"cmd/unistorage",
 		"Dockerfile",
 	}

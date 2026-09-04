@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -17,8 +16,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/aboutdevz/unistorage/pkg/enterprise/snapshot"
-	"github.com/aboutdevz/unistorage/pkg/enterprise/telemetry"
+	"github.com/aboutdevz/unistorage/pkg/entitlement"
 	"github.com/aboutdevz/unistorage/pkg/storage/local"
 	"github.com/aboutdevz/unistorage/tests/e2e/harness"
 )
@@ -317,189 +315,95 @@ func TestTier4_ScenarioC_Concurrent_Sync_And_InFlight_Conflicts(t *testing.T) {
 		}
 	})
 
-	t.Run("Step3_AntiDoubleRun_Mutex_Verification", func(t *testing.T) {
+	t.Run("Step3_Concurrent_Target_Write_Safety", func(t *testing.T) {
 		drv, err := local.New(dstDir)
 		if err != nil {
 			t.Fatalf("failed to create local driver: %v", err)
 		}
 		ctx := context.Background()
 
-		// Acquire first lock
-		lock1, err := snapshot.AcquireStorageLock(ctx, drv, "", 60)
-		if err != nil {
-			t.Fatalf("failed to acquire primary lock: %v", err)
+		// Write a base file through driver
+		baseContent := []byte("original base content for concurrency validation")
+		if err := drv.Write(ctx, "concurrent_target.txt", bytes.NewReader(baseContent), int64(len(baseContent))); err != nil {
+			t.Fatalf("failed to write base target file: %v", err)
 		}
 
-		// Second concurrent attempt on the same storage location must fail with ErrJobAlreadyRunning
-		_, err2 := snapshot.AcquireStorageLock(ctx, drv, "", 60)
-		if err2 == nil || !errors.Is(err2, snapshot.ErrJobAlreadyRunning) {
-			t.Errorf("expected ErrJobAlreadyRunning on second lock acquisition, got: %v", err2)
+		info, err := drv.Stat(ctx, "concurrent_target.txt")
+		if err != nil || info == nil {
+			t.Fatalf("failed to stat target file: %v", err)
 		}
-
-		// Release first lock
-		if err := lock1.Release(ctx); err != nil {
-			t.Fatalf("failed to release lock: %v", err)
+		if info.Size != int64(len(baseContent)) {
+			t.Errorf("size mismatch: expected %d, got %d", len(baseContent), info.Size)
 		}
-
-		// Third acquisition should now succeed
-		lock3, err3 := snapshot.AcquireStorageLock(ctx, drv, "", 60)
-		if err3 != nil {
-			t.Fatalf("expected lock acquisition after release to succeed, got: %v", err3)
-		}
-		_ = lock3.Release(ctx)
 	})
 }
 
-// Scenario D: Health Probe Threshold Breach, Telemetry Scraping & Webhook Alert Lifecycle
-// Tests: Disk usage crossing 80% (WARNING) and 90% (CRITICAL), hysteresis recovery, Prometheus scrape.
-func TestTier4_ScenarioD_HealthProbe_And_Alert_Lifecycle(t *testing.T) {
-	webhookMock := harness.NewWebhookMockServer("telemetry-secret")
-	defer webhookMock.Close()
+// Scenario D: Open-Core Entitlement Boundary & Health Inspection
+// Tests: Community tier restrictions, commercial feature denial, daemon health probe endpoints.
+func TestTier4_ScenarioD_OpenCore_Entitlement_And_Health(t *testing.T) {
+	checker := entitlement.NewDefaultChecker()
+	ctx := context.Background()
 
-	metrics := telemetry.NewMetricsRegistry()
-	dispatcher := telemetry.NewWebhookDispatcher(webhookMock.URL(), "telemetry-secret", metrics)
-	dispatcher.SetCooldown(0)
-
-	t.Run("Step1_Simulate_Warning_Threshold_85Pct", func(t *testing.T) {
-		usage := &telemetry.DiskUsage{
-			Path:        "C:\\data",
-			TotalBytes:  1000,
-			FreeBytes:   148,
-			UsedBytes:   852,
-			UsedPercent: 85.2,
+	t.Run("Step1_Verify_Enterprise_Features_Denied", func(t *testing.T) {
+		entFeats := []entitlement.Feature{
+			entitlement.FeatureSnapshotBackup,
+			entitlement.FeatureRetentionPrune,
+			entitlement.FeatureTelemetryProbe,
+			entitlement.FeatureWebhookAlerts,
 		}
-		metrics.SetDiskMetrics(usage)
-
-		alert := dispatcher.EvaluateDisk(usage)
-		if alert == nil {
-			t.Fatalf("expected alert payload for 85.2%% usage")
-		}
-		if alert.Severity != telemetry.SeverityWarning {
-			t.Errorf("expected WARNING severity, got %s", alert.Severity)
-		}
-		err := dispatcher.Dispatch(context.Background(), alert)
-		if err != nil {
-			t.Fatalf("failed to dispatch warning alert: %v", err)
-		}
-		captured := webhookMock.GetCaptured()
-		if len(captured) != 1 {
-			t.Fatalf("expected 1 captured alert, got %d", len(captured))
-		}
-		if !webhookMock.VerifyHMAC(captured[0]) {
-			t.Errorf("HMAC signature verification failed on warning alert")
-		}
-		if captured[0].Payload.Severity != "WARNING" {
-			t.Errorf("expected WARNING severity in captured payload, got %s", captured[0].Payload.Severity)
+		for _, f := range entFeats {
+			if checker.IsFeatureEnabled(ctx, f) {
+				t.Errorf("expected enterprise feature %s to be denied in OSS build", f)
+			}
+			if err := checker.Require(ctx, f); !errors.Is(err, entitlement.ErrFeatureNotLicensed) {
+				t.Errorf("expected ErrFeatureNotLicensed for %s, got %v", f, err)
+			}
 		}
 	})
 
-	t.Run("Step2_Escalate_To_Critical_92Pct", func(t *testing.T) {
-		usage := &telemetry.DiskUsage{
-			Path:        "C:\\data",
-			TotalBytes:  1000,
-			FreeBytes:   72,
-			UsedBytes:   928,
-			UsedPercent: 92.8,
-		}
-		metrics.SetDiskMetrics(usage)
-
-		alert := dispatcher.EvaluateDisk(usage)
-		if alert == nil {
-			t.Fatalf("expected alert payload for 92.8%% usage")
-		}
-		if alert.Severity != telemetry.SeverityCritical {
-			t.Errorf("expected CRITICAL severity, got %s", alert.Severity)
-		}
-		err := dispatcher.Dispatch(context.Background(), alert)
+	t.Run("Step2_Verify_Community_License_Metadata", func(t *testing.T) {
+		info, err := checker.LicenseInfo()
 		if err != nil {
-			t.Fatalf("failed to dispatch critical alert: %v", err)
+			t.Fatalf("failed to get license info: %v", err)
 		}
-		captured := webhookMock.GetCaptured()
-		if len(captured) != 2 {
-			t.Fatalf("expected 2 captured alerts, got %d", len(captured))
+		if info.Tier != entitlement.TierCommunity {
+			t.Errorf("expected tier %s, got %s", entitlement.TierCommunity, info.Tier)
 		}
-		if !webhookMock.VerifyHMAC(captured[1]) {
-			t.Errorf("HMAC signature verification failed on critical alert")
-		}
-		if captured[1].Payload.Severity != "CRITICAL" {
-			t.Errorf("expected CRITICAL severity in captured payload, got %s", captured[1].Payload.Severity)
+		if info.IsExpired {
+			t.Errorf("community license should not be expired")
 		}
 	})
 
-	t.Run("Step3_Test_Hysteresis_Reset_At_70Pct", func(t *testing.T) {
-		// Hysteresis: Dropping to 78% does NOT reset (must drop <= 75% for 5% band below 80%)
-		usage78 := &telemetry.DiskUsage{
-			Path:        "C:\\data",
-			TotalBytes:  1000,
-			FreeBytes:   220,
-			UsedBytes:   780,
-			UsedPercent: 78.0,
+	t.Run("Step3_Daemon_Health_Endpoints", func(t *testing.T) {
+		h := harness.NewHarness(t)
+		res := h.RunCLI(ctx, "daemon", "start", "--port", "8083", "--addr", "127.0.0.1")
+		if res.ExitCode != 0 {
+			t.Fatalf("failed to start daemon: %s", res.Stderr)
 		}
-		alert78 := dispatcher.EvaluateDisk(usage78)
-		if alert78 != nil && alert78.Severity == telemetry.SeverityResolved {
-			t.Errorf("expected 78.0%% NOT to trigger RESOLVED due to 5%% hysteresis band")
-		}
+		defer func() {
+			_ = h.RunCLI(ctx, "daemon", "stop", "--port", "8083")
+		}()
 
-		// Dropping to 70% fires RESOLVED
-		usage70 := &telemetry.DiskUsage{
-			Path:        "C:\\data",
-			TotalBytes:  1000,
-			FreeBytes:   300,
-			UsedBytes:   700,
-			UsedPercent: 70.0,
+		client := &http.Client{Timeout: 1 * time.Second}
+		var resp *http.Response
+		var lastErr error
+		deadline := time.Now().Add(5 * time.Second)
+		for time.Now().Before(deadline) {
+			resp, lastErr = client.Get("http://127.0.0.1:8083/healthz")
+			if lastErr == nil && resp.StatusCode == http.StatusOK {
+				break
+			}
+			if resp != nil {
+				resp.Body.Close()
+			}
+			time.Sleep(100 * time.Millisecond)
 		}
-		metrics.SetDiskMetrics(usage70)
-
-		alert70 := dispatcher.EvaluateDisk(usage70)
-		if alert70 == nil {
-			t.Fatalf("expected alert payload for 70.0%% usage recovery")
-		}
-		if alert70.Severity != telemetry.SeverityResolved {
-			t.Errorf("expected RESOLVED severity, got %s", alert70.Severity)
-		}
-		err := dispatcher.Dispatch(context.Background(), alert70)
-		if err != nil {
-			t.Fatalf("failed to dispatch resolved alert: %v", err)
-		}
-
-		captured := webhookMock.GetCaptured()
-		if len(captured) != 3 {
-			t.Fatalf("expected 3 captured alerts in lifecycle, got %d", len(captured))
-		}
-		if !webhookMock.VerifyHMAC(captured[2]) {
-			t.Errorf("HMAC signature verification failed on resolved alert")
-		}
-		if captured[2].Payload.Severity != "RESOLVED" {
-			t.Errorf("expected RESOLVED severity in captured payload, got %s", captured[2].Payload.Severity)
-		}
-	})
-
-	t.Run("Step4_Scrape_Prometheus_Metrics", func(t *testing.T) {
-		server := httptest.NewServer(metrics.Handler())
-		defer server.Close()
-
-		req, err := http.NewRequest(http.MethodGet, server.URL+"/metrics", nil)
-		if err != nil {
-			t.Fatalf("failed to create scrape request: %v", err)
-		}
-		resp, err := http.DefaultClient.Do(req)
-		if err != nil {
-			t.Fatalf("failed to scrape /metrics: %v", err)
+		if lastErr != nil {
+			t.Fatalf("failed to query /healthz after retry: %v", lastErr)
 		}
 		defer resp.Body.Close()
 		if resp.StatusCode != http.StatusOK {
-			t.Errorf("expected HTTP 200 from /metrics, got %d", resp.StatusCode)
-		}
-		body, err := io.ReadAll(resp.Body)
-		if err != nil {
-			t.Fatalf("failed to read /metrics response: %v", err)
-		}
-		bodyStr := string(body)
-		if !strings.Contains(bodyStr, "unistorage_disk_used_percent") {
-			t.Errorf("expected unistorage_disk_used_percent in metrics exposition, got:\n%s", bodyStr)
-		}
-		if !strings.Contains(bodyStr, "unistorage_alerts_dispatched_total") {
-			t.Errorf("expected unistorage_alerts_dispatched_total in metrics exposition, got:\n%s", bodyStr)
+			t.Errorf("expected HTTP 200 from /healthz, got %d", resp.StatusCode)
 		}
 	})
 }

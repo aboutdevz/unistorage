@@ -3,8 +3,6 @@ package e2e
 import (
 	"bytes"
 	"context"
-	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -14,8 +12,7 @@ import (
 	"testing"
 
 	"github.com/aboutdevz/unistorage/internal/daemon"
-	"github.com/aboutdevz/unistorage/pkg/enterprise/snapshot"
-	"github.com/aboutdevz/unistorage/pkg/enterprise/telemetry"
+	"github.com/aboutdevz/unistorage/pkg/entitlement"
 	"github.com/aboutdevz/unistorage/pkg/storage/local"
 	"github.com/aboutdevz/unistorage/pkg/storage/s3"
 	"github.com/aboutdevz/unistorage/tests/e2e/harness"
@@ -241,79 +238,43 @@ func TestTier3_VaultCredentials_UsedBySync(t *testing.T) {
 	})
 }
 
-// TestTier3_SnapshotRetentionPruning_AcrossMultipleSyncs tests pairwise interaction between
-// Sync Engine, Snapshot Manifests, and Retention Pruner.
-func TestTier3_SnapshotRetentionPruning_AcrossMultipleSyncs(t *testing.T) {
+// TestTier3_Entitlement_And_Sync_Boundary tests pairwise interaction between
+// Sync Engine and Entitlement Checker.
+func TestTier3_Entitlement_And_Sync_Boundary(t *testing.T) {
 	h := harness.NewHarness(t)
-	destRoot := filepath.Join(h.RootDir, "snapshots_dest")
-	retentionLimit := 3
+	ctx := context.Background()
 
-	// Create 5 synthetic snapshot directory trees with manifests
-	for i := 1; i <= 5; i++ {
-		snapDir := fmt.Sprintf("snapshots_dest/snapshots/2026-09-04T0%d-00-00Z", i)
-		h.CreateFile(filepath.Join(snapDir, "data.bin"), []byte(fmt.Sprintf("snapshot %d", i)))
+	checker := entitlement.NewDefaultChecker()
 
-		manifest := map[string]any{
-			"manifest_version": "1.0",
-			"snapshot_id":      fmt.Sprintf("snap-%d", i),
-			"timestamp":        fmt.Sprintf("2026-09-04T0%d:00:00Z", i),
-			"stats": map[string]any{
-				"total_files": 1,
-				"status":      "SUCCESS",
-			},
+	t.Run("Pairwise_Community_Edition_Allows_Core_Sync", func(t *testing.T) {
+		h.CreateFile("source/sample.txt", []byte("sample core sync content"))
+		res := h.RunCLI(ctx, "sync", filepath.Join(h.RootDir, "source"), filepath.Join(h.RootDir, "dest"))
+		if res.ExitCode != 0 {
+			t.Fatalf("core sync failed under community edition: %s", res.Stderr)
 		}
-		data, _ := json.Marshal(manifest)
-		h.CreateFile(filepath.Join(snapDir, "manifest.json"), data)
-	}
-
-	drv, err := local.New(destRoot)
-	if err != nil {
-		t.Fatalf("failed to instantiate local driver: %v", err)
-	}
-	pruner := snapshot.NewPruner(drv)
-
-	var pruneRes *snapshot.PruneResult
-	t.Run("Pairwise_Pruner_Identifies_Excess_Snapshots", func(t *testing.T) {
-		res, err := pruner.Prune(context.Background(), "", retentionLimit)
-		if err != nil {
-			t.Fatalf("pruner failed: %v", err)
-		}
-		pruneRes = res
-
-		if pruneRes.TotalSnapshots != 5 {
-			t.Errorf("expected 5 total snapshots, got %d", pruneRes.TotalSnapshots)
-		}
-		if pruneRes.ValidSnapshots != 5 {
-			t.Errorf("expected 5 valid snapshots, got %d", pruneRes.ValidSnapshots)
-		}
-		if pruneRes.PrunedSnapshots != 2 {
-			t.Errorf("expected 2 pruned snapshots, got %d", pruneRes.PrunedSnapshots)
+		if !h.FileExists("dest/sample.txt") {
+			t.Errorf("synced file dest/sample.txt missing on disk")
 		}
 	})
 
-	t.Run("Pairwise_Pruner_Preserves_Newest_N", func(t *testing.T) {
-		// Snapshots 1 and 2 must be purged
-		for i := 1; i <= 2; i++ {
-			snapDir := fmt.Sprintf("snapshots_dest/snapshots/2026-09-04T0%d-00-00Z", i)
-			if h.FileExists(filepath.Join(snapDir, "data.bin")) {
-				t.Errorf("snapshot %d should have been deleted by pruner", i)
-			}
-		}
-		// Snapshots 3, 4, 5 must remain intact
-		for i := 3; i <= 5; i++ {
-			snapDir := fmt.Sprintf("snapshots_dest/snapshots/2026-09-04T0%d-00-00Z", i)
-			if !h.FileExists(filepath.Join(snapDir, "data.bin")) {
-				t.Errorf("snapshot %d should be preserved by pruner", i)
+	t.Run("Pairwise_Community_Edition_Denies_Commercial_Capabilities", func(t *testing.T) {
+		for _, feat := range []entitlement.Feature{
+			entitlement.FeatureSnapshotBackup,
+			entitlement.FeatureRetentionPrune,
+			entitlement.FeatureTelemetryProbe,
+			entitlement.FeatureWebhookAlerts,
+		} {
+			if checker.IsFeatureEnabled(ctx, feat) {
+				t.Errorf("expected commercial feature %s to be denied", feat)
 			}
 		}
 	})
 }
 
-// TestTier3_JobMutex_Prevents_Overlapping_Syncs tests pairwise interaction between
-// Anti-Double-Run Mutex, Snapshot Scheduler, and File Transfers.
-func TestTier3_JobMutex_Prevents_Overlapping_Syncs(t *testing.T) {
+// TestTier3_LocalDriver_And_Storage_Isolation tests pairwise interaction between
+// Local FS Driver and Sandboxed Storage Root Boundaries.
+func TestTier3_LocalDriver_And_Storage_Isolation(t *testing.T) {
 	h := harness.NewHarness(t)
-	jobID := "daily-db-backup"
 	ctx := context.Background()
 
 	drv, err := local.New(h.RootDir)
@@ -321,104 +282,21 @@ func TestTier3_JobMutex_Prevents_Overlapping_Syncs(t *testing.T) {
 		t.Fatalf("failed to create driver: %v", err)
 	}
 
-	t.Run("Pairwise_Mutex_Lock_File_Created", func(t *testing.T) {
-		lock, err := snapshot.AcquireStorageLock(ctx, drv, "", 60)
+	t.Run("Pairwise_Driver_Writes_And_Reads_Within_Root", func(t *testing.T) {
+		data := []byte("isolated payload")
+		if err := drv.Write(ctx, "sub/test.bin", bytes.NewReader(data), int64(len(data))); err != nil {
+			t.Fatalf("failed to write file: %v", err)
+		}
+
+		rc, err := drv.Read(ctx, "sub/test.bin")
 		if err != nil {
-			t.Fatalf("failed to acquire initial storage lock: %v", err)
+			t.Fatalf("failed to read file: %v", err)
 		}
-		defer lock.Release(ctx)
+		defer rc.Close()
 
-		lockFilePath := filepath.Join(h.RootDir, ".job.lock")
-		if !h.FileExists(".job.lock") {
-			t.Fatalf(".job.lock file missing on disk at %s", lockFilePath)
-		}
-	})
-
-	t.Run("Pairwise_Second_Execution_Skipped", func(t *testing.T) {
-		// Acquire first lock
-		lock1, err := snapshot.AcquireStorageLock(ctx, drv, "", 60)
-		if err != nil {
-			t.Fatalf("failed to acquire primary lock: %v", err)
-		}
-
-		// Second concurrent attempt must fail with ErrJobAlreadyRunning
-		_, err2 := snapshot.AcquireStorageLock(ctx, drv, "", 60)
-		if err2 == nil || !errors.Is(err2, snapshot.ErrJobAlreadyRunning) {
-			t.Errorf("expected ErrJobAlreadyRunning, got %v", err2)
-		}
-
-		// Release first lock
-		if err := lock1.Release(ctx); err != nil {
-			t.Fatalf("failed to release lock: %v", err)
-		}
-
-		// Third acquisition should now succeed
-		lock3, err3 := snapshot.AcquireStorageLock(ctx, drv, "", 60)
-		if err3 != nil {
-			t.Fatalf("expected lock acquisition after release, got: %v", err3)
-		}
-		_ = lock3.Release(ctx)
-
-		// Verify in-memory registry mutex as well
-		reg := snapshot.NewJobMutexRegistry()
-		if !reg.TryLock(jobID) {
-			t.Errorf("initial TryLock failed")
-		}
-		if reg.TryLock(jobID) {
-			t.Errorf("secondary TryLock should have been blocked")
-		}
-		reg.Unlock(jobID)
-		if !reg.TryLock(jobID) {
-			t.Errorf("TryLock after Unlock failed")
-		}
-	})
-}
-
-// TestTier3_DiskHealthProbe_And_WebhookAlert tests pairwise interaction between
-// OS Syscall Disk Inspection, Telemetry Probe, and Webhook Alert Dispatcher.
-func TestTier3_DiskHealthProbe_And_WebhookAlert(t *testing.T) {
-	webhookMock := harness.NewWebhookMockServer("webhook-secret-key")
-	defer webhookMock.Close()
-
-	metrics := telemetry.NewMetricsRegistry()
-	dispatcher := telemetry.NewWebhookDispatcher(webhookMock.URL(), "webhook-secret-key", metrics)
-	dispatcher.SetCooldown(0)
-
-	t.Run("Pairwise_Probe_Breach_Fires_Webhook", func(t *testing.T) {
-		// Simulate disk probe exceeding 80% WARNING
-		usage := &telemetry.DiskUsage{
-			Path:        "C:\\data",
-			TotalBytes:  1000,
-			FreeBytes:   155,
-			UsedBytes:   845,
-			UsedPercent: 84.5,
-		}
-
-		payload := dispatcher.EvaluateDisk(usage)
-		if payload == nil {
-			t.Fatalf("expected alert payload from disk usage 84.5%%")
-		}
-		if payload.Severity != telemetry.SeverityWarning {
-			t.Errorf("expected WARNING severity, got %s", payload.Severity)
-		}
-
-		err := dispatcher.Dispatch(context.Background(), payload)
-		if err != nil {
-			t.Fatalf("failed to dispatch webhook: %v", err)
-		}
-
-		captured := webhookMock.GetCaptured()
-		if len(captured) != 1 {
-			t.Fatalf("expected 1 captured webhook, got %d", len(captured))
-		}
-		if !webhookMock.VerifyHMAC(captured[0]) {
-			t.Errorf("HMAC signature verification failed")
-		}
-		if captured[0].Payload.Severity != "WARNING" {
-			t.Errorf("expected WARNING severity in captured payload, got %s", captured[0].Payload.Severity)
-		}
-		if captured[0].Payload.Rule != "disk_capacity_warning" {
-			t.Errorf("expected rule disk_capacity_warning, got %s", captured[0].Payload.Rule)
+		readBytes, _ := io.ReadAll(rc)
+		if string(readBytes) != string(data) {
+			t.Errorf("data mismatch: expected %q, got %q", string(data), string(readBytes))
 		}
 	})
 }

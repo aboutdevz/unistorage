@@ -43,6 +43,10 @@ docker-data/
 .agents/
 brain/
 worktrees/
+dev/
+
+# Commercial Enterprise Module (Separated Private Repo)
+pkg/enterprise/
 *.plan.md
 prompt_draft.md
 implementation_plan.md

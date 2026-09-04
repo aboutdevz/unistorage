@@ -3,7 +3,6 @@ package e2e
 import (
 	"bytes"
 	"context"
-	"crypto/ed25519"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/base64"
@@ -20,7 +19,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/aboutdevz/unistorage/pkg/enterprise/license"
+	"github.com/aboutdevz/unistorage/pkg/entitlement"
 	"github.com/aboutdevz/unistorage/pkg/storage"
 	"github.com/aboutdevz/unistorage/pkg/storage/local"
 	"github.com/aboutdevz/unistorage/pkg/vault"
@@ -289,14 +288,14 @@ func TestChallenger2_Enterprise_FeatureGate_Attacks(t *testing.T) {
 	ctx := context.Background()
 
 	// 1. Community Edition Gating
-	comm := license.NewCommunityChecker()
+	comm := entitlement.NewCommunityChecker()
 
 	// A: All known enterprise features must be denied
-	entFeatures := []license.Feature{
-		license.FeatureSnapshotBackup,
-		license.FeatureRetentionPrune,
-		license.FeatureTelemetryProbe,
-		license.FeatureWebhookAlerts,
+	entFeatures := []entitlement.Feature{
+		entitlement.FeatureSnapshotBackup,
+		entitlement.FeatureRetentionPrune,
+		entitlement.FeatureTelemetryProbe,
+		entitlement.FeatureWebhookAlerts,
 	}
 	for _, f := range entFeatures {
 		if comm.IsFeatureEnabled(ctx, f) {
@@ -305,13 +304,13 @@ func TestChallenger2_Enterprise_FeatureGate_Attacks(t *testing.T) {
 		if ok, _ := comm.Check(ctx, f); ok {
 			t.Errorf("FAIL: Community Check(%s) returned true", f)
 		}
-		if err := comm.Require(ctx, f); !errors.Is(err, license.ErrFeatureNotLicensed) {
+		if err := comm.Require(ctx, f); !errors.Is(err, entitlement.ErrFeatureNotLicensed) {
 			t.Errorf("FAIL: Community Require(%s) did not return ErrFeatureNotLicensed, got: %v", f, err)
 		}
 	}
 
 	// B: Bypass attempts with invalid feature tokens
-	bypassFeatures := []license.Feature{
+	bypassFeatures := []entitlement.Feature{
 		"",
 		"enterprise.*",
 		"enterprise.snapshot_backup/bypass",
@@ -320,95 +319,24 @@ func TestChallenger2_Enterprise_FeatureGate_Attacks(t *testing.T) {
 		"root",
 	}
 	for _, bf := range bypassFeatures {
-		// Non-enterprise features are not recognized as enterprise features by isEnterpriseFeature,
-		// but let's check what Check returns
+		// Non-enterprise features are not recognized as enterprise features by IsEnterpriseFeature
 		_ = comm.IsFeatureEnabled(ctx, bf)
 	}
 
 	// C: Community edition ValidateLicense must reject any key
 	_, err := comm.ValidateLicense(ctx, "fake-key-token")
-	if !errors.Is(err, license.ErrFeatureNotLicensed) {
+	if !errors.Is(err, entitlement.ErrFeatureNotLicensed) {
 		t.Errorf("expected ValidateLicense to return ErrFeatureNotLicensed, got: %v", err)
 	}
 
-	// 2. Enterprise Edition Cryptographic Gating Attacks
-	vendorPub, vendorPriv, err := license.GenerateKeyPair()
-	if err != nil {
-		t.Fatalf("GenerateKeyPair failed: %v", err)
+	// D: Default checker under OSS must be community checker
+	defaultChecker := entitlement.NewDefaultChecker()
+	if defaultChecker.IsFeatureEnabled(ctx, entitlement.FeatureSnapshotBackup) {
+		t.Errorf("FAIL: NewDefaultChecker allowed enterprise feature in OSS build")
 	}
-
-	attackerPub, attackerPriv, err := license.GenerateKeyPair()
-	if err != nil {
-		t.Fatalf("Attacker GenerateKeyPair failed: %v", err)
-	}
-	_ = attackerPub
-
-	validLicense := &license.LicenseKey{
-		CustomerID: "challenger-corp",
-		LicensedTo: "Challenger Corp QA",
-		IssuedAt:   time.Now().Add(-1 * time.Hour),
-		ExpiresAt:  time.Now().Add(48 * time.Hour),
-		Features:   []license.Feature{license.FeatureSnapshotBackup},
-		Tier:       license.TierEnterprise,
-	}
-
-	validToken, err := license.SignLicense(vendorPriv, validLicense)
-	if err != nil {
-		t.Fatalf("SignLicense failed: %v", err)
-	}
-
-	// Attack 1: Attacker signs valid license with rogue private key
-	rogueToken, err := license.SignLicense(attackerPriv, validLicense)
-	if err != nil {
-		t.Fatalf("attacker sign failed: %v", err)
-	}
-	_, err = license.VerifyLicense(vendorPub, rogueToken)
-	if !errors.Is(err, license.ErrInvalidLicenseSignature) {
-		t.Errorf("FAIL: VerifyLicense accepted rogue private key signature! got: %v", err)
-	}
-
-	// Attack 2: Tampered payload with elevated features
-	parts := strings.Split(validToken, ".")
-	tamperedPayloadJSON := `{"customer_id":"challenger-corp","licensed_to":"Challenger Corp QA","issued_at_unix":` +
-		fmt.Sprintf("%d", time.Now().Add(-1*time.Hour).Unix()) +
-		`,"expires_at_unix":` + fmt.Sprintf("%d", time.Now().Add(48*time.Hour).Unix()) +
-		`,"features":["enterprise.retention_prune","enterprise.snapshot_backup","enterprise.telemetry_probe","enterprise.webhook_alerts"],"node_limit":0,"tier":"enterprise"}`
-	tamperedPayloadB64 := base64.RawURLEncoding.EncodeToString([]byte(tamperedPayloadJSON))
-	tamperedToken := tamperedPayloadB64 + "." + parts[1]
-
-	_, err = license.VerifyLicense(vendorPub, tamperedToken)
-	if !errors.Is(err, license.ErrInvalidLicenseSignature) {
-		t.Errorf("FAIL: VerifyLicense accepted tampered feature payload! got: %v", err)
-	}
-
-	// Attack 3: Expired enterprise license
-	expiredLicense := &license.LicenseKey{
-		CustomerID: "challenger-corp",
-		LicensedTo: "Challenger Corp QA",
-		IssuedAt:   time.Now().Add(-48 * time.Hour),
-		ExpiresAt:  time.Now().Add(-1 * time.Hour), // expired 1h ago
-		Features:   []license.Feature{license.FeatureSnapshotBackup},
-		Tier:       license.TierEnterprise,
-	}
-	expiredToken, _ := license.SignLicense(vendorPriv, expiredLicense)
-	checkerExpired, err := license.NewEnterpriseChecker(vendorPub, expiredToken)
-	if err != nil {
-		t.Fatalf("failed to init checker with expired token: %v", err)
-	}
-	if checkerExpired.IsFeatureEnabled(ctx, license.FeatureSnapshotBackup) {
-		t.Errorf("FAIL: EnterpriseChecker allowed FeatureSnapshotBackup on expired license!")
-	}
-	if err := checkerExpired.Require(ctx, license.FeatureSnapshotBackup); !errors.Is(err, license.ErrLicenseExpired) {
-		t.Errorf("FAIL: Require did not return ErrLicenseExpired on expired license, got: %v", err)
-	}
-
-	// Attack 4: Key length fuzzing / malformed Ed25519 keys
-	for _, badKeyLen := range []int{0, 16, 31, 33, 64} {
-		badPub := make([]byte, badKeyLen)
-		_, err := license.VerifyLicense(ed25519.PublicKey(badPub), validToken)
-		if err == nil {
-			t.Errorf("FAIL: VerifyLicense accepted invalid public key length %d", badKeyLen)
-		}
+	info, err := defaultChecker.LicenseInfo()
+	if err != nil || info.Tier != entitlement.TierCommunity {
+		t.Errorf("FAIL: NewDefaultChecker expected tier %s, got: %v", entitlement.TierCommunity, info)
 	}
 }
 
