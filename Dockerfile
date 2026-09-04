@@ -1,7 +1,7 @@
 # ==============================================================================
 # Stage 1: Build Stage (golang:1.22-alpine)
 # ==============================================================================
-FROM golang:1.22-alpine AS builder
+FROM golang:1.27-alpine AS builder
 
 # Install build-time dependencies
 RUN apk add --no-cache \
