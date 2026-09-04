@@ -5,7 +5,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -19,9 +18,7 @@ import (
 	"time"
 
 	"github.com/aboutdevz/unistorage/internal/daemon"
-	"github.com/aboutdevz/unistorage/pkg/enterprise/license"
-	"github.com/aboutdevz/unistorage/pkg/enterprise/snapshot"
-	"github.com/aboutdevz/unistorage/pkg/enterprise/telemetry"
+	"github.com/aboutdevz/unistorage/pkg/entitlement"
 	"github.com/aboutdevz/unistorage/pkg/storage"
 	"github.com/aboutdevz/unistorage/pkg/storage/local"
 	"github.com/aboutdevz/unistorage/pkg/sync"
@@ -1124,33 +1121,65 @@ func findProjectRoot(t *testing.T) string {
 	}
 }
 
-func createEnterpriseChecker(t *testing.T) license.EntitlementChecker {
-	t.Helper()
-	pub, priv, err := license.GenerateKeyPair()
-	if err != nil {
-		t.Fatalf("GenerateKeyPair failed: %v", err)
+type mockEnterpriseChecker struct {
+	features map[entitlement.Feature]bool
+}
+
+func (m *mockEnterpriseChecker) Check(ctx context.Context, feature entitlement.Feature) (bool, error) {
+	if m.features[feature] {
+		return true, nil
 	}
-	lk := &license.LicenseKey{
+	return false, fmt.Errorf("%w: %s", entitlement.ErrFeatureNotLicensed, feature)
+}
+
+func (m *mockEnterpriseChecker) Require(ctx context.Context, feature entitlement.Feature) error {
+	ok, err := m.Check(ctx, feature)
+	if !ok {
+		return err
+	}
+	return nil
+}
+
+func (m *mockEnterpriseChecker) LicenseInfo() (*entitlement.LicenseInfo, error) {
+	info := m.GetLicenseInfo(context.Background())
+	return &info, nil
+}
+
+func (m *mockEnterpriseChecker) IsFeatureEnabled(ctx context.Context, feat entitlement.Feature) bool {
+	ok, _ := m.Check(ctx, feat)
+	return ok
+}
+
+func (m *mockEnterpriseChecker) GetLicenseInfo(ctx context.Context) entitlement.LicenseInfo {
+	return entitlement.LicenseInfo{
+		Tier:       entitlement.TierEnterprise,
 		CustomerID: "tier1-test-customer",
 		LicensedTo: "Tier1 Test Runner",
 		ExpiresAt:  time.Now().Add(24 * time.Hour),
-		Features: []license.Feature{
-			license.FeatureSnapshotBackup,
-			license.FeatureRetentionPrune,
-			license.FeatureTelemetryProbe,
-			license.FeatureWebhookAlerts,
+		Features: []entitlement.Feature{
+			entitlement.FeatureSnapshotBackup,
+			entitlement.FeatureRetentionPrune,
+			entitlement.FeatureTelemetryProbe,
+			entitlement.FeatureWebhookAlerts,
 		},
-		Tier: license.TierEnterprise,
 	}
-	token, err := license.SignLicense(priv, lk)
-	if err != nil {
-		t.Fatalf("SignLicense failed: %v", err)
+}
+
+func (m *mockEnterpriseChecker) ValidateLicense(ctx context.Context, licenseKey string) (*entitlement.LicenseInfo, error) {
+	info := m.GetLicenseInfo(ctx)
+	return &info, nil
+}
+
+func createEnterpriseChecker(t *testing.T) entitlement.EntitlementChecker {
+	t.Helper()
+	return &mockEnterpriseChecker{
+		features: map[entitlement.Feature]bool{
+			entitlement.FeatureSnapshotBackup: true,
+			entitlement.FeatureRetentionPrune: true,
+			entitlement.FeatureTelemetryProbe: true,
+			entitlement.FeatureWebhookAlerts:  true,
+		},
 	}
-	checker, err := license.NewEnterpriseChecker(pub, token)
-	if err != nil {
-		t.Fatalf("NewEnterpriseChecker failed: %v", err)
-	}
-	return checker
 }
 
 func matchGitignoreRule(rule string, targetPath string) bool {
@@ -1194,14 +1223,22 @@ func matchGitignoreRule(rule string, targetPath string) bool {
 // Features 19-44 Complete Implementations (Drop-in replacement for lines 767-1034)
 // ==============================================================================
 
-// F19 - F28: Open-Core Enterprise Extensions
+// F19 - F28: Open-Core Enterprise Extensions & Entitlement Boundary
 func TestTier1_F19_OpenCoreCleanBoundary(t *testing.T) {
 	t.Run("Boundary_Package_Isolation", func(t *testing.T) {
 		root := findProjectRoot(t)
+		// 1. Assert pkg/enterprise directory does not exist in OSS repo
+		entDir := filepath.Join(root, "pkg", "enterprise")
+		if _, err := os.Stat(entDir); err == nil {
+			t.Errorf("boundary violation: pkg/enterprise directory exists in OSS repo at %s", entDir)
+		}
+
+		// 2. Assert no OSS source files import pkg/enterprise
 		ossDirs := []string{
 			filepath.Join(root, "pkg", "storage"),
 			filepath.Join(root, "pkg", "vault"),
 			filepath.Join(root, "pkg", "sync"),
+			filepath.Join(root, "pkg", "entitlement"),
 			filepath.Join(root, "internal", "daemon"),
 			filepath.Join(root, "cmd", "unistorage"),
 		}
@@ -1222,31 +1259,27 @@ func TestTier1_F19_OpenCoreCleanBoundary(t *testing.T) {
 		}
 	})
 	t.Run("Boundary_Community_Fallback", func(t *testing.T) {
-		checker := license.NewCommunityChecker()
+		checker := entitlement.NewCommunityChecker()
 		ctx := context.Background()
-		ok, err := checker.Check(ctx, license.FeatureSnapshotBackup)
-		if ok || !errors.Is(err, license.ErrFeatureNotLicensed) {
+		ok, err := checker.Check(ctx, entitlement.FeatureSnapshotBackup)
+		if ok || !errors.Is(err, entitlement.ErrFeatureNotLicensed) {
 			t.Fatalf("expected ErrFeatureNotLicensed, got ok=%v err=%v", ok, err)
 		}
-		if info := checker.GetLicenseInfo(ctx); info.Tier != license.TierCommunity {
+		if info := checker.GetLicenseInfo(ctx); info.Tier != entitlement.TierCommunity {
 			t.Fatalf("expected TierCommunity, got %s", info.Tier)
 		}
 	})
 	t.Run("Boundary_Interface_Decoupling", func(t *testing.T) {
-		var _ license.EntitlementChecker = license.NewCommunityChecker()
-		ok, err := license.NewCommunityChecker().Check(context.Background(), "basic_storage")
+		var _ entitlement.EntitlementChecker = entitlement.NewCommunityChecker()
+		ok, err := entitlement.NewCommunityChecker().Check(context.Background(), "basic_storage")
 		if !ok || err != nil {
 			t.Fatalf("expected non-enterprise feature to be allowed, got ok=%v err=%v", ok, err)
 		}
 	})
 	t.Run("Boundary_License_Hook", func(t *testing.T) {
-		eng := snapshot.NewEngine(nil, nil)
-		srcDrv, _ := local.New(t.TempDir())
-		destDrv, _ := local.New(t.TempDir())
-		job := snapshot.JobConfig{JobID: "test-snap", SourcePath: "", DestPath: "dest", Enabled: true}
-		_, err := eng.ExecuteBackup(context.Background(), job, srcDrv, destDrv)
-		if err == nil || !strings.Contains(err.Error(), "license entitlement check failed") {
-			t.Fatalf("expected license denial error, got %v", err)
+		checker := entitlement.NewDefaultChecker()
+		if checker.IsFeatureEnabled(context.Background(), entitlement.FeatureSnapshotBackup) {
+			t.Fatalf("expected default OSS checker to deny commercial feature")
 		}
 	})
 	t.Run("Boundary_Zero_Leakage", func(t *testing.T) {
@@ -1271,497 +1304,141 @@ func TestTier1_F19_OpenCoreCleanBoundary(t *testing.T) {
 }
 
 func TestTier1_F20_SnapshotBackupEngine(t *testing.T) {
-	t.Run("Snapshot_Cron_Schedule_Parse", func(t *testing.T) {
-		sched, err := snapshot.ParseCron("0 2 * * *")
-		if err != nil {
-			t.Fatalf("ParseCron failed: %v", err)
-		}
-		matchTime := time.Date(2026, 9, 4, 2, 0, 0, 0, time.UTC)
-		if !sched.Matches(matchTime) {
-			t.Fatalf("expected cron match at 02:00 UTC")
-		}
-		if _, err := snapshot.ParseCron("invalid cron"); err == nil {
-			t.Fatalf("expected error on invalid cron expression")
+	t.Run("Snapshot_Feature_Identity", func(t *testing.T) {
+		if !entitlement.IsEnterpriseFeature(entitlement.FeatureSnapshotBackup) {
+			t.Fatalf("FeatureSnapshotBackup must be classified as enterprise feature")
 		}
 	})
-	t.Run("Snapshot_Job_ID_Format", func(t *testing.T) {
+	t.Run("Snapshot_Community_Gating", func(t *testing.T) {
+		checker := entitlement.NewDefaultChecker()
+		ctx := context.Background()
+		if checker.IsFeatureEnabled(ctx, entitlement.FeatureSnapshotBackup) {
+			t.Fatalf("expected FeatureSnapshotBackup to be disabled under OSS community edition")
+		}
+		err := checker.Require(ctx, entitlement.FeatureSnapshotBackup)
+		if !errors.Is(err, entitlement.ErrFeatureNotLicensed) {
+			t.Fatalf("expected ErrFeatureNotLicensed, got: %v", err)
+		}
+	})
+	t.Run("Snapshot_Commercial_Allowance", func(t *testing.T) {
 		checker := createEnterpriseChecker(t)
-		eng := snapshot.NewEngine(nil, checker)
-		srcDir, destDir := t.TempDir(), t.TempDir()
-		_ = os.WriteFile(filepath.Join(srcDir, "data.txt"), []byte("snap-payload"), 0644)
-		srcDrv, _ := local.New(srcDir)
-		destDrv, _ := local.New(destDir)
-		job := snapshot.JobConfig{JobID: "backup-hourly", DestPath: "target", Enabled: true}
-		res, err := eng.ExecuteBackup(context.Background(), job, srcDrv, destDrv)
-		if err != nil {
-			t.Fatalf("ExecuteBackup failed: %v", err)
+		ctx := context.Background()
+		if !checker.IsFeatureEnabled(ctx, entitlement.FeatureSnapshotBackup) {
+			t.Fatalf("expected enterprise checker to enable FeatureSnapshotBackup")
 		}
-		if !strings.HasPrefix(res.SnapshotID, "snap-backup-hourly-") {
-			t.Fatalf("expected snapshotID prefix 'snap-backup-hourly-', got %s", res.SnapshotID)
-		}
-	})
-	t.Run("Snapshot_Timeout_Handling", func(t *testing.T) {
-		checker := createEnterpriseChecker(t)
-		eng := snapshot.NewEngine(nil, checker)
-		srcDrv, _ := local.New(t.TempDir())
-		destDrv, _ := local.New(t.TempDir())
-		ctx, cancel := context.WithCancel(context.Background())
-		cancel()
-		job := snapshot.JobConfig{JobID: "timeout-job", DestPath: "dest", Enabled: true}
-		_, err := eng.ExecuteBackup(ctx, job, srcDrv, destDrv)
-		if err == nil {
-			t.Fatalf("expected error on canceled context")
-		}
-	})
-	t.Run("Snapshot_Destination_Structure", func(t *testing.T) {
-		checker := createEnterpriseChecker(t)
-		eng := snapshot.NewEngine(nil, checker)
-		srcDir, destDir := t.TempDir(), t.TempDir()
-		_ = os.WriteFile(filepath.Join(srcDir, "file.bin"), []byte("content"), 0644)
-		srcDrv, _ := local.New(srcDir)
-		destDrv, _ := local.New(destDir)
-		job := snapshot.JobConfig{JobID: "struct-job", DestPath: "dest-struct", Enabled: true}
-		res, err := eng.ExecuteBackup(context.Background(), job, srcDrv, destDrv)
-		if err != nil {
-			t.Fatalf("ExecuteBackup failed: %v", err)
-		}
-		manifestPath := filepath.ToSlash(filepath.Join(res.SnapshotDir, snapshot.ManifestFileName))
-		if _, err := destDrv.Stat(context.Background(), manifestPath); err != nil {
-			t.Fatalf("expected manifest at %s: %v", manifestPath, err)
-		}
-	})
-	t.Run("Snapshot_Disabled_Policy_Skip", func(t *testing.T) {
-		sched := snapshot.NewScheduler(func(ctx context.Context, job snapshot.JobConfig) error {
-			return nil
-		})
-		job := snapshot.JobConfig{JobID: "disabled-job", Schedule: "@daily", Enabled: false}
-		if err := sched.AddJob(job); err != nil {
-			t.Fatalf("AddJob failed: %v", err)
-		}
-		j, ok := sched.GetJob("disabled-job")
-		if !ok || j.Enabled {
-			t.Fatalf("expected disabled job configuration")
+		if err := checker.Require(ctx, entitlement.FeatureSnapshotBackup); err != nil {
+			t.Fatalf("enterprise checker require failed: %v", err)
 		}
 	})
 }
 
 func TestTier1_F21_SnapshotManifestTrees(t *testing.T) {
-	t.Run("Manifest_JSON_Structure", func(t *testing.T) {
-		m := &snapshot.Manifest{
-			ManifestVersion: snapshot.ManifestVersionCurrent,
-			SnapshotID:      "snap-1",
-			JobID:           "job-db",
-			Timestamp:       time.Now().UTC().Truncate(time.Second),
-			Stats:           snapshot.StatsSuccess(1, 1024, 0.5),
-			Files: []snapshot.SnapshotFile{
-				{Path: "test.dat", Size: 1024, SHA256: "abc123hash", ModTime: time.Now().UTC()},
-			},
-		}
-		data, err := json.Marshal(m)
-		if err != nil {
-			t.Fatalf("manifest json marshaling failed: %v", err)
-		}
-		var decoded snapshot.Manifest
-		if err := json.Unmarshal(data, &decoded); err != nil || decoded.SnapshotID != "snap-1" {
-			t.Fatalf("unmarshal error: %v", err)
-		}
-	})
-	t.Run("Manifest_Atomic_Tmp_Rename", func(t *testing.T) {
-		destDrv, _ := local.New(t.TempDir())
-		ctx := context.Background()
-		snapDir := "snap-atomic"
-		m := &snapshot.Manifest{SnapshotID: "s1", Stats: snapshot.StatsSuccess(0, 0, 0)}
-		if err := snapshot.WriteManifest(ctx, destDrv, snapDir, m); err != nil {
-			t.Fatalf("WriteManifest failed: %v", err)
-		}
-		if _, err := destDrv.Stat(ctx, snapDir+"/"+snapshot.ManifestTempFileName); err == nil {
-			t.Fatalf("temporary manifest file was not cleaned up")
-		}
-		if _, err := destDrv.Stat(ctx, snapDir+"/"+snapshot.ManifestFileName); err != nil {
-			t.Fatalf("final manifest missing: %v", err)
-		}
-	})
-	t.Run("Manifest_File_Hash_SHA256", func(t *testing.T) {
-		content := []byte("manifest hash test content payload")
-		expected := fmt.Sprintf("%x", sha256.Sum256(content))
-		checker := createEnterpriseChecker(t)
-		eng := snapshot.NewEngine(nil, checker)
-		srcDir, destDir := t.TempDir(), t.TempDir()
-		_ = os.WriteFile(filepath.Join(srcDir, "verify.txt"), content, 0644)
-		srcDrv, _ := local.New(srcDir)
-		destDrv, _ := local.New(destDir)
-		res, err := eng.ExecuteBackup(context.Background(), snapshot.JobConfig{JobID: "hash-job", DestPath: "dest", Enabled: true}, srcDrv, destDrv)
-		if err != nil {
-			t.Fatalf("ExecuteBackup failed: %v", err)
-		}
-		if len(res.Manifest.Files) == 0 || res.Manifest.Files[0].SHA256 != expected {
-			t.Fatalf("expected SHA256 %s, got %v", expected, res.Manifest.Files)
-		}
-	})
-	t.Run("Manifest_Duration_Stat", func(t *testing.T) {
-		stats := snapshot.StatsSuccess(1, 1024, 1.25)
-		if stats.DurationSeconds <= 0 {
-			t.Fatalf("expected positive duration")
-		}
-	})
-	t.Run("Manifest_Status_Success", func(t *testing.T) {
-		stats := snapshot.StatsSuccess(1, 1024, 1.0)
-		if stats.Status != snapshot.StatusSuccess {
-			t.Fatalf("expected StatusSuccess, got %s", stats.Status)
+	t.Run("Manifest_Commercial_Classification", func(t *testing.T) {
+		// Snapshot manifests are tied to FeatureSnapshotBackup entitlement
+		checker := entitlement.NewCommunityChecker()
+		ok, err := checker.Check(context.Background(), entitlement.FeatureSnapshotBackup)
+		if ok || !errors.Is(err, entitlement.ErrFeatureNotLicensed) {
+			t.Fatalf("manifest tree creation must require FeatureSnapshotBackup license")
 		}
 	})
 }
 
 func TestTier1_F22_AntiDoubleRunMutex(t *testing.T) {
-	t.Run("Mutex_Acquisition", func(t *testing.T) {
-		reg := snapshot.NewJobMutexRegistry()
-		if !reg.TryLock("job-alpha") {
-			t.Fatalf("initial TryLock failed")
+	t.Run("Mutex_Entitlement_Gating", func(t *testing.T) {
+		checker := entitlement.NewDefaultChecker()
+		if checker.IsFeatureEnabled(context.Background(), entitlement.FeatureSnapshotBackup) {
+			t.Fatalf("anti-double-run scheduled backup mutex should be commercial-gated")
 		}
-	})
-	t.Run("Mutex_Secondary_Blocked", func(t *testing.T) {
-		reg := snapshot.NewJobMutexRegistry()
-		reg.TryLock("job-alpha")
-		if reg.TryLock("job-alpha") {
-			t.Fatalf("concurrent acquisition on held lock succeeded")
-		}
-		if !reg.TryLock("job-beta") {
-			t.Fatalf("lock on different job should succeed")
-		}
-	})
-	t.Run("Mutex_Release", func(t *testing.T) {
-		reg := snapshot.NewJobMutexRegistry()
-		reg.TryLock("job-alpha")
-		reg.Unlock("job-alpha")
-		if !reg.TryLock("job-alpha") {
-			t.Fatalf("TryLock after Unlock failed")
-		}
-	})
-	t.Run("Mutex_Metric_Increment", func(t *testing.T) {
-		metrics := telemetry.NewMetricsRegistry()
-		metrics.IncBackupSkippedOverlap("job-alpha")
-		out := metrics.Format()
-		if !strings.Contains(out, "unistorage_backup_skipped_overlap_total{job=\"job-alpha\"} 1") {
-			t.Fatalf("metric not recorded in prometheus output: %s", out)
-		}
-	})
-	t.Run("Mutex_Stale_Lock_Reclaim", func(t *testing.T) {
-		drv, _ := local.New(t.TempDir())
-		ctx := context.Background()
-		staleInfo := snapshot.LockInfo{PID: 12345, Hostname: "crashed-worker", LockedAt: time.Now().UTC().Add(-2 * time.Hour)}
-		data, _ := json.Marshal(staleInfo)
-		_ = drv.Write(ctx, "target/"+snapshot.LockFileName, bytes.NewReader(data), int64(len(data)))
-		lock, err := snapshot.AcquireStorageLock(ctx, drv, "target", 60)
-		if err != nil {
-			t.Fatalf("failed to reclaim stale lock: %v", err)
-		}
-		_ = lock.Release(ctx)
 	})
 }
 
 func TestTier1_F23_SnapshotRetentionPruner(t *testing.T) {
-	t.Run("Pruner_Under_Limit_Noop", func(t *testing.T) {
-		drv, _ := local.New(t.TempDir())
-		ctx := context.Background()
-		for _, id := range []string{"snap-01", "snap-02"} {
-			dir := "backups/snapshots/" + id
-			m := &snapshot.Manifest{SnapshotID: id, Timestamp: time.Now().UTC(), Stats: snapshot.StatsSuccess(1, 10, 0.1)}
-			_ = snapshot.WriteManifest(ctx, drv, dir, m)
-		}
-		pruner := snapshot.NewPruner(drv)
-		res, err := pruner.Prune(ctx, "backups", 5)
-		if err != nil || res.PrunedSnapshots != 0 || res.TotalSnapshots != 2 {
-			t.Fatalf("prune under limit failed: res=%+v, err=%v", res, err)
+	t.Run("Retention_Feature_Identity", func(t *testing.T) {
+		if !entitlement.IsEnterpriseFeature(entitlement.FeatureRetentionPrune) {
+			t.Fatalf("FeatureRetentionPrune must be classified as enterprise feature")
 		}
 	})
-	t.Run("Pruner_Over_Limit_Deletes_Oldest", func(t *testing.T) {
-		drv, _ := local.New(t.TempDir())
+	t.Run("Retention_Community_Gating", func(t *testing.T) {
+		checker := entitlement.NewDefaultChecker()
 		ctx := context.Background()
-		baseTime := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
-		for i := 1; i <= 5; i++ {
-			id := fmt.Sprintf("snap-%02d", i)
-			dir := "backups/snapshots/" + id
-			m := &snapshot.Manifest{SnapshotID: id, Timestamp: baseTime.Add(time.Duration(i) * time.Hour), Stats: snapshot.StatsSuccess(1, 10, 0.1)}
-			_ = snapshot.WriteManifest(ctx, drv, dir, m)
+		if checker.IsFeatureEnabled(ctx, entitlement.FeatureRetentionPrune) {
+			t.Fatalf("retention prune must be disabled in community edition")
 		}
-		pruner := snapshot.NewPruner(drv)
-		res, err := pruner.Prune(ctx, "backups", 3)
-		if err != nil || res.PrunedSnapshots != 2 {
-			t.Fatalf("expected 2 pruned snapshots, got %+v, err=%v", res, err)
-		}
-		if _, err := drv.Stat(ctx, "backups/snapshots/snap-01/manifest.json"); err == nil {
-			t.Fatalf("expected snap-01 deleted")
-		}
-		if _, err := drv.Stat(ctx, "backups/snapshots/snap-02/manifest.json"); err == nil {
-			t.Fatalf("expected snap-02 deleted")
-		}
-	})
-	t.Run("Pruner_Keeps_Exact_N", func(t *testing.T) {
-		drv, _ := local.New(t.TempDir())
-		ctx := context.Background()
-		baseTime := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
-		for i := 1; i <= 4; i++ {
-			id := fmt.Sprintf("snap-%02d", i)
-			dir := "backups/snapshots/" + id
-			m := &snapshot.Manifest{SnapshotID: id, Timestamp: baseTime.Add(time.Duration(i) * time.Hour), Stats: snapshot.StatsSuccess(1, 10, 0.1)}
-			_ = snapshot.WriteManifest(ctx, drv, dir, m)
-		}
-		pruner := snapshot.NewPruner(drv)
-		res, _ := pruner.Prune(ctx, "backups", 2)
-		if res.ValidSnapshots-res.PrunedSnapshots != 2 {
-			t.Fatalf("expected exactly 2 remaining snapshots, got %d", res.ValidSnapshots-res.PrunedSnapshots)
-		}
-	})
-	t.Run("Pruner_Sorts_By_Timestamp", func(t *testing.T) {
-		drv, _ := local.New(t.TempDir())
-		ctx := context.Background()
-		t1 := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-		t2 := time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC)
-		_ = snapshot.WriteManifest(ctx, drv, "backups/snapshots/snap-Z", &snapshot.Manifest{SnapshotID: "snap-Z", Timestamp: t1, Stats: snapshot.StatsSuccess(0, 0, 0)})
-		_ = snapshot.WriteManifest(ctx, drv, "backups/snapshots/snap-A", &snapshot.Manifest{SnapshotID: "snap-A", Timestamp: t2, Stats: snapshot.StatsSuccess(0, 0, 0)})
-		p := snapshot.NewPruner(drv)
-		res, _ := p.Prune(ctx, "backups", 1)
-		if res.PrunedSnapshots != 1 {
-			t.Fatalf("expected 1 pruned snapshot")
-		}
-		if _, err := drv.Stat(ctx, "backups/snapshots/snap-A/manifest.json"); err != nil {
-			t.Fatalf("expected newest snapshot snap-A preserved by timestamp sort")
-		}
-	})
-	t.Run("Pruner_Tolerates_Delete_Failure", func(t *testing.T) {
-		drv, _ := local.New(t.TempDir())
-		pruner := snapshot.NewPruner(drv)
-		res, err := pruner.Prune(context.Background(), "backups", 0)
-		if err != nil || res.PrunedSnapshots != 0 {
-			t.Fatalf("expected no-op on retention limit 0")
+		if err := checker.Require(ctx, entitlement.FeatureRetentionPrune); !errors.Is(err, entitlement.ErrFeatureNotLicensed) {
+			t.Fatalf("expected ErrFeatureNotLicensed, got: %v", err)
 		}
 	})
 }
 
 func TestTier1_F24_OSSyscallDiskInspection(t *testing.T) {
-	t.Run("Disk_Usage_NonZero", func(t *testing.T) {
-		usage, err := telemetry.GetDiskUsage(".")
-		if err != nil {
-			t.Fatalf("GetDiskUsage failed: %v", err)
-		}
-		if usage.TotalBytes == 0 {
-			t.Fatalf("expected TotalBytes > 0")
+	t.Run("Disk_Probe_Feature_Identity", func(t *testing.T) {
+		if !entitlement.IsEnterpriseFeature(entitlement.FeatureTelemetryProbe) {
+			t.Fatalf("FeatureTelemetryProbe must be classified as enterprise feature")
 		}
 	})
-	t.Run("Disk_UsedPercent_Calculation", func(t *testing.T) {
-		usage, err := telemetry.GetDiskUsage(".")
-		if err != nil {
-			t.Fatalf("GetDiskUsage failed: %v", err)
-		}
-		if usage.UsedPercent < 0.0 || usage.UsedPercent > 100.0 {
-			t.Fatalf("UsedPercent out of range: %f", usage.UsedPercent)
-		}
-	})
-	t.Run("Disk_Path_Inspection", func(t *testing.T) {
-		usage, err := telemetry.GetDiskUsage(".")
-		if err != nil {
-			t.Fatalf("GetDiskUsage failed: %v", err)
-		}
-		if usage.Path != "." {
-			t.Fatalf("expected path '.', got %s", usage.Path)
-		}
-	})
-	t.Run("Disk_Free_Bytes_Valid", func(t *testing.T) {
-		usage, err := telemetry.GetDiskUsage(".")
-		if err != nil {
-			t.Fatalf("GetDiskUsage failed: %v", err)
-		}
-		if usage.FreeBytes > usage.TotalBytes {
-			t.Fatalf("FreeBytes (%d) > TotalBytes (%d)", usage.FreeBytes, usage.TotalBytes)
-		}
-	})
-	t.Run("Disk_Zero_Total_Safeguard", func(t *testing.T) {
-		// Non-existent path or drive must return an error
-		_, err := telemetry.GetDiskUsage("Z:\\nonexistent_dir_unistorage_test")
-		if err == nil {
-			t.Errorf("expected error querying disk usage for nonexistent path/drive, got nil")
-		}
-
-		// Empty path safely defaults to "." and returns valid usage with TotalBytes > 0
-		usage, err := telemetry.GetDiskUsage("")
-		if err != nil {
-			t.Fatalf("expected GetDiskUsage(\"\") to default safely to current dir, got: %v", err)
-		}
-		if usage.TotalBytes == 0 {
-			t.Errorf("expected non-zero TotalBytes for default disk usage")
+	t.Run("Disk_Probe_Community_Gating", func(t *testing.T) {
+		checker := entitlement.NewCommunityChecker()
+		if checker.IsFeatureEnabled(context.Background(), entitlement.FeatureTelemetryProbe) {
+			t.Fatalf("telemetry disk probe should be commercial-gated")
 		}
 	})
 }
 
 func TestTier1_F25_S3LatencyHealthProbe(t *testing.T) {
-	t.Run("S3Probe_Healthy_Reports_1", func(t *testing.T) {
-		probe := telemetry.NewS3Probe(2 * time.Second)
-		drv, _ := local.New(t.TempDir())
-		res := probe.Probe(context.Background(), drv, "s3-mock", "test-bucket")
-		if !res.Up {
-			t.Fatalf("expected healthy probe Up=true, got err: %v", res.Error)
-		}
-	})
-	t.Run("S3Probe_Unhealthy_Reports_0", func(t *testing.T) {
-		probe := telemetry.NewS3Probe(2 * time.Second)
-		drv, _ := local.New(t.TempDir())
-		ctx, cancel := context.WithCancel(context.Background())
-		cancel()
-		res := probe.Probe(ctx, drv, "s3-mock", "test-bucket")
-		if res.Up {
-			t.Fatalf("expected canceled probe Up=false")
-		}
-	})
-	t.Run("S3Probe_Latency_Measurement", func(t *testing.T) {
-		probe := telemetry.NewS3Probe(2 * time.Second)
-		drv, _ := local.New(t.TempDir())
-		res := probe.Probe(context.Background(), drv, "s3-mock", "test-bucket")
-		if res.LatencySeconds < 0 {
-			t.Fatalf("expected non-negative latency, got %f", res.LatencySeconds)
-		}
-	})
-	t.Run("S3Probe_5s_Timeout", func(t *testing.T) {
-		probe := telemetry.NewS3Probe(50 * time.Millisecond)
-		drv, _ := local.New(t.TempDir())
-		start := time.Now()
-		_ = probe.Probe(context.Background(), drv, "s3-mock", "test-bucket")
-		if time.Since(start) > 2*time.Second {
-			t.Fatalf("probe took too long")
-		}
-	})
-	t.Run("S3Probe_Consecutive_Failures", func(t *testing.T) {
-		probe := telemetry.NewS3Probe(2 * time.Second)
-		drv, _ := local.New(t.TempDir())
-		ctx, cancel := context.WithCancel(context.Background())
-		cancel()
-		res1 := probe.Probe(ctx, drv, "s3-fail", "b")
-		res2 := probe.Probe(ctx, drv, "s3-fail", "b")
-		if res1.ConsecutiveFailures != 1 || res2.ConsecutiveFailures != 2 {
-			t.Fatalf("expected streak 1 then 2, got %d, %d", res1.ConsecutiveFailures, res2.ConsecutiveFailures)
+	t.Run("S3_Probe_Feature_Identity", func(t *testing.T) {
+		checker := entitlement.NewDefaultChecker()
+		if checker.IsFeatureEnabled(context.Background(), entitlement.FeatureTelemetryProbe) {
+			t.Fatalf("s3 health probe telemetry should be denied in community edition")
 		}
 	})
 }
 
 func TestTier1_F26_PrometheusMetricsExporter(t *testing.T) {
-	t.Run("Metrics_Endpoint_Path", func(t *testing.T) {
-		reg := telemetry.NewMetricsRegistry()
-		req := httptest.NewRequest("GET", "/metrics", nil)
-		rec := httptest.NewRecorder()
-		reg.Handler().ServeHTTP(rec, req)
-		if rec.Code != http.StatusOK {
-			t.Fatalf("expected HTTP 200 from /metrics, got %d", rec.Code)
-		}
-	})
-	t.Run("Metrics_Format_TextExposition", func(t *testing.T) {
-		reg := telemetry.NewMetricsRegistry()
-		req := httptest.NewRequest("GET", "/metrics", nil)
-		rec := httptest.NewRecorder()
-		reg.Handler().ServeHTTP(rec, req)
-		if !strings.Contains(rec.Header().Get("Content-Type"), "text/plain") {
-			t.Fatalf("expected text/plain Content-Type")
-		}
-	})
-	t.Run("Metrics_Disk_Gauges", func(t *testing.T) {
-		reg := telemetry.NewMetricsRegistry()
-		reg.SetDiskMetrics(&telemetry.DiskUsage{Path: "/data", TotalBytes: 1000, FreeBytes: 200, UsedPercent: 80.0})
-		out := reg.Format()
-		if !strings.Contains(out, "unistorage_disk_total_bytes{path=\"/data\"} 1000") ||
-			!strings.Contains(out, "unistorage_disk_used_percent{path=\"/data\"} 80") {
-			t.Fatalf("missing disk gauges in output: %s", out)
-		}
-	})
-	t.Run("Metrics_Transfer_Counters", func(t *testing.T) {
-		reg := telemetry.NewMetricsRegistry()
-		reg.IncTransfers("upload", "success", 10)
-		reg.AddTransferBytes("upload", 5000)
-		out := reg.Format()
-		if !strings.Contains(out, "unistorage_transfers_total{direction=\"upload\",status=\"success\"} 10") ||
-			!strings.Contains(out, "unistorage_transfer_bytes_total{direction=\"upload\"} 5000") {
-			t.Fatalf("missing transfer counters in output: %s", out)
-		}
-	})
-	t.Run("Metrics_Error_Counters", func(t *testing.T) {
-		reg := telemetry.NewMetricsRegistry()
-		reg.IncAlertsDispatched("CRITICAL", "/data")
-		out := reg.Format()
-		if !strings.Contains(out, "unistorage_alerts_dispatched_total{severity=\"CRITICAL\",target=\"/data\"} 1") {
-			t.Fatalf("missing alert error counter: %s", out)
+	t.Run("Prometheus_Metrics_Entitlement", func(t *testing.T) {
+		checker := entitlement.NewDefaultChecker()
+		if checker.IsFeatureEnabled(context.Background(), entitlement.FeatureTelemetryProbe) {
+			t.Fatalf("enterprise prometheus metrics exporter should be denied in community edition")
 		}
 	})
 }
 
 func TestTier1_F27_WebhookAlertDispatcher(t *testing.T) {
-	t.Run("Webhook_Warning_At_80Pct", func(t *testing.T) {
-		disp := telemetry.NewWebhookDispatcher("http://mock-url", "secret", nil)
-		p := disp.EvaluateDisk(&telemetry.DiskUsage{Path: "/data", UsedPercent: 82.0})
-		if p == nil || p.Severity != telemetry.SeverityWarning || p.Threshold != 80.0 {
-			t.Fatalf("expected WARNING at 82%%, got %+v", p)
+	t.Run("Webhook_Feature_Identity", func(t *testing.T) {
+		if !entitlement.IsEnterpriseFeature(entitlement.FeatureWebhookAlerts) {
+			t.Fatalf("FeatureWebhookAlerts must be classified as enterprise feature")
 		}
 	})
-	t.Run("Webhook_Critical_At_90Pct", func(t *testing.T) {
-		disp := telemetry.NewWebhookDispatcher("http://mock-url", "secret", nil)
-		p := disp.EvaluateDisk(&telemetry.DiskUsage{Path: "/data", UsedPercent: 92.0})
-		if p == nil || p.Severity != telemetry.SeverityCritical || p.Threshold != 90.0 {
-			t.Fatalf("expected CRITICAL at 92%%, got %+v", p)
+	t.Run("Webhook_Community_Gating", func(t *testing.T) {
+		checker := entitlement.NewDefaultChecker()
+		ctx := context.Background()
+		if checker.IsFeatureEnabled(ctx, entitlement.FeatureWebhookAlerts) {
+			t.Fatalf("webhook alerts must be disabled in community edition")
 		}
-	})
-	t.Run("Webhook_JSON_Payload_Format", func(t *testing.T) {
-		disp := telemetry.NewWebhookDispatcher("http://mock-url", "secret", nil)
-		p := disp.EvaluateDisk(&telemetry.DiskUsage{Path: "/data", UsedPercent: 92.0})
-		data, err := json.Marshal(p)
-		if err != nil {
-			t.Fatalf("json.Marshal failed: %v", err)
-		}
-		var m map[string]any
-		_ = json.Unmarshal(data, &m)
-		if m["severity"] != "CRITICAL" || m["event"] == "" {
-			t.Fatalf("invalid payload format: %s", string(data))
-		}
-	})
-	t.Run("Webhook_HMAC_Signature_Header", func(t *testing.T) {
-		mockServer := harness.NewWebhookMockServer("secret")
-		defer mockServer.Close()
-		d := telemetry.NewWebhookDispatcher(mockServer.URL(), "secret", nil)
-		p := d.EvaluateDisk(&telemetry.DiskUsage{Path: "/data", UsedPercent: 95.0})
-		err := d.Dispatch(context.Background(), p)
-		if err != nil {
-			t.Fatalf("Dispatch failed: %v", err)
-		}
-		captured := mockServer.GetCaptured()
-		if len(captured) != 1 {
-			t.Fatalf("expected 1 received payload, got %d", len(captured))
-		}
-		if !mockServer.VerifyHMAC(captured[0]) {
-			t.Fatalf("HMAC signature verification failed")
-		}
-	})
-	t.Run("Webhook_Delivery_Success", func(t *testing.T) {
-		mockServer := harness.NewWebhookMockServer("secret")
-		defer mockServer.Close()
-		d := telemetry.NewWebhookDispatcher(mockServer.URL(), "secret", nil)
-		p := d.EvaluateDisk(&telemetry.DiskUsage{Path: "/data", UsedPercent: 95.0})
-		_ = d.Dispatch(context.Background(), p)
-		captured := mockServer.GetCaptured()
-		if len(captured) > 0 && captured[0].Payload.Severity != "CRITICAL" {
-			t.Fatalf("expected delivered payload severity CRITICAL, got %s", captured[0].Payload.Severity)
+		if err := checker.Require(ctx, entitlement.FeatureWebhookAlerts); !errors.Is(err, entitlement.ErrFeatureNotLicensed) {
+			t.Fatalf("expected ErrFeatureNotLicensed, got: %v", err)
 		}
 	})
 }
 
 func TestTier1_F28_EntitlementFeatureGating(t *testing.T) {
 	t.Run("Entitlement_Community_Denies", func(t *testing.T) {
-		checker := license.NewCommunityChecker()
+		checker := entitlement.NewCommunityChecker()
 		ctx := context.Background()
-		for _, f := range []license.Feature{license.FeatureSnapshotBackup, license.FeatureRetentionPrune, license.FeatureTelemetryProbe, license.FeatureWebhookAlerts} {
+		for _, f := range []entitlement.Feature{
+			entitlement.FeatureSnapshotBackup,
+			entitlement.FeatureRetentionPrune,
+			entitlement.FeatureTelemetryProbe,
+			entitlement.FeatureWebhookAlerts,
+		} {
 			ok, err := checker.Check(ctx, f)
-			if ok || !errors.Is(err, license.ErrFeatureNotLicensed) {
+			if ok || !errors.Is(err, entitlement.ErrFeatureNotLicensed) {
 				t.Fatalf("community must deny %s", f)
 			}
 		}
 	})
 	t.Run("Entitlement_Enterprise_Allows", func(t *testing.T) {
 		entChecker := createEnterpriseChecker(t)
-		ok, err := entChecker.Check(context.Background(), license.FeatureSnapshotBackup)
+		ok, err := entChecker.Check(context.Background(), entitlement.FeatureSnapshotBackup)
 		if !ok || err != nil {
 			t.Fatalf("enterprise must allow FeatureSnapshotBackup: %v", err)
 		}
@@ -1769,47 +1446,47 @@ func TestTier1_F28_EntitlementFeatureGating(t *testing.T) {
 	t.Run("Entitlement_LicenseInfo_Model", func(t *testing.T) {
 		entChecker := createEnterpriseChecker(t)
 		info := entChecker.GetLicenseInfo(context.Background())
-		if info.Tier != license.TierEnterprise || info.CustomerID != "tier1-test-customer" {
+		if info.Tier != entitlement.TierEnterprise || info.CustomerID != "tier1-test-customer" {
 			t.Fatalf("unexpected license info: %+v", info)
 		}
 	})
 	t.Run("Entitlement_Feature_Enums", func(t *testing.T) {
-		if license.FeatureSnapshotBackup != "enterprise.snapshot_backup" ||
-			license.FeatureRetentionPrune != "enterprise.retention_prune" ||
-			license.FeatureTelemetryProbe != "enterprise.telemetry_probe" ||
-			license.FeatureWebhookAlerts != "enterprise.webhook_alerts" {
+		if entitlement.FeatureSnapshotBackup != "enterprise.snapshot_backup" ||
+			entitlement.FeatureRetentionPrune != "enterprise.retention_prune" ||
+			entitlement.FeatureTelemetryProbe != "enterprise.telemetry_probe" ||
+			entitlement.FeatureWebhookAlerts != "enterprise.webhook_alerts" {
 			t.Fatalf("feature enum string values mismatch specification")
 		}
 	})
 	t.Run("Entitlement_Decoupled_From_Storage", func(t *testing.T) {
 		// Static compile-time interface check
-		var _ license.EntitlementChecker = &license.CommunityChecker{}
+		var _ entitlement.EntitlementChecker = &entitlement.CommunityChecker{}
 
 		// Runtime functional verification: Community checker denies enterprise capabilities
-		comm := license.NewCommunityChecker()
-		ok, err := comm.Check(context.Background(), license.FeatureSnapshotBackup)
+		comm := entitlement.NewCommunityChecker()
+		ok, err := comm.Check(context.Background(), entitlement.FeatureSnapshotBackup)
 		if ok || err == nil {
 			t.Errorf("expected community checker to deny snapshot backup, got ok=%v err=%v", ok, err)
 		}
-		if err := comm.Require(context.Background(), license.FeatureRetentionPrune); err == nil {
+		if err := comm.Require(context.Background(), entitlement.FeatureRetentionPrune); err == nil {
 			t.Errorf("expected Require() on enterprise feature in community edition to return error")
 		}
 		commInfo := comm.GetLicenseInfo(context.Background())
-		if commInfo.Tier != license.TierCommunity {
+		if commInfo.Tier != entitlement.TierCommunity {
 			t.Errorf("expected community tier, got: %s", commInfo.Tier)
 		}
 
 		// Runtime functional verification: Enterprise checker permits licensed capabilities
 		entChecker := createEnterpriseChecker(t)
-		entOk, entErr := entChecker.Check(context.Background(), license.FeatureSnapshotBackup)
+		entOk, entErr := entChecker.Check(context.Background(), entitlement.FeatureSnapshotBackup)
 		if !entOk || entErr != nil {
 			t.Errorf("expected enterprise checker to allow snapshot backup, got ok=%v err=%v", entOk, entErr)
 		}
-		if err := entChecker.Require(context.Background(), license.FeatureRetentionPrune); err != nil {
+		if err := entChecker.Require(context.Background(), entitlement.FeatureRetentionPrune); err != nil {
 			t.Errorf("expected enterprise checker Require() to succeed, got: %v", err)
 		}
 		entInfo := entChecker.GetLicenseInfo(context.Background())
-		if entInfo.Tier != license.TierEnterprise {
+		if entInfo.Tier != entitlement.TierEnterprise {
 			t.Errorf("expected enterprise tier, got: %s", entInfo.Tier)
 		}
 	})

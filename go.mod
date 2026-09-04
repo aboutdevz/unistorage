@@ -9,7 +9,6 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.110.0
 	github.com/aws/smithy-go v1.28.1
 	golang.org/x/crypto v0.56.0
-	golang.org/x/sys v0.47.0
 )
 
 require (
@@ -26,4 +25,5 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/sso v1.22.4 // indirect
 	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.26.4 // indirect
 	github.com/aws/aws-sdk-go-v2/service/sts v1.30.3 // indirect
+	golang.org/x/sys v0.47.0 // indirect
 )
