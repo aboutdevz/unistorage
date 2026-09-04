@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -183,6 +184,9 @@ func (h *Harness) VerifyTokenPermissions() bool {
 		return false
 	}
 	// Mode check (on Unix mode should be 0600; on Windows Go sets 0666/0600)
+	if runtime.GOOS == "windows" {
+		return fi.Mode().Perm() == 0666 || fi.Mode().Perm() == 0600
+	}
 	mode := fi.Mode().Perm()
 	return mode&0077 == 0 || mode == 0600
 }

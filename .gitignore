@@ -85,3 +85,19 @@ desktop.ini
 *.cert
 *.crt
 credentials.json
+
+# Security & SBOM Scan Output (Tools CI/CD)
+*.sarif
+*.sbom
+sbom.*.json
+*.sig
+*.bundle
+checksums.txt
+
+# Go Fuzzing Corpus Cache:
+testdata/fuzz/
+
+# UniStorage Atomic Runtime Temp
+*.tmp.*
+*.pid
+release-artifacts/

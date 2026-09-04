@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/aboutdevz/unistorage/pkg/storage"
 )
@@ -166,13 +167,17 @@ func (d *Driver) WriteWithOptions(ctx context.Context, path string, r io.Reader,
 		return &storage.StorageError{Op: "write", Driver: "local", Path: path, Err: fmt.Errorf("failed to close temp file: %w", err)}
 	}
 
-	// 7. Atomic rename
-	if err := os.Rename(tmpPath, fullPath); err != nil {
-		// On Windows, if destination exists, rename might fail unless removed first
-		_ = os.Remove(fullPath)
-		if retryErr := os.Rename(tmpPath, fullPath); retryErr != nil {
-			return &storage.StorageError{Op: "write", Driver: "local", Path: path, Err: fmt.Errorf("atomic rename failed: %w", retryErr)}
+	// 7. Atomic rename (with retry loop for Windows sharing violations under concurrent access)
+	var renameErr error
+	for attempt := 0; attempt < 20; attempt++ {
+		if renameErr = os.Rename(tmpPath, fullPath); renameErr == nil {
+			break
 		}
+		_ = os.Remove(fullPath)
+		time.Sleep(time.Duration(15*(attempt+1)) * time.Millisecond)
+	}
+	if renameErr != nil {
+		return &storage.StorageError{Op: "write", Driver: "local", Path: path, Err: fmt.Errorf("atomic rename failed: %w", renameErr)}
 	}
 
 	cleanup = false

@@ -25,14 +25,24 @@ var (
 )
 
 const (
-	vaultMagic       = "UNIS"
-	vaultVersion     = byte(0x01)
-	argon2Time       = uint32(3)
-	argon2Memory     = uint32(64 * 1024) // 64 MiB in KiB
-	argon2Threads    = uint8(4)
-	saltLength       = 16
-	nonceLength      = 12
-	derivedKeyLength = 32
+	VaultMagic       = "UNIS"
+	VaultVersion     = byte(0x01)
+	Argon2Time       = uint32(3)
+	Argon2Memory     = uint32(64 * 1024) // 64 MiB in KiB
+	Argon2Threads    = uint8(4)
+	SaltLength       = 16
+	NonceLength      = 12
+	DerivedKeyLength = 32
+	TagLength        = 16
+
+	vaultMagic       = VaultMagic
+	vaultVersion     = VaultVersion
+	argon2Time       = Argon2Time
+	argon2Memory     = Argon2Memory
+	argon2Threads    = Argon2Threads
+	saltLength       = SaltLength
+	nonceLength      = NonceLength
+	derivedKeyLength = DerivedKeyLength
 )
 
 // RemoteProfile holds configuration attributes and credentials for a backend remote.
@@ -247,32 +257,33 @@ func (v *FileVault) saveStore(passphrase []byte, store map[string]RemoteProfile)
 	return nil
 }
 
-// SaveRemote saves or updates a remote profile in the vault.
-func (v *FileVault) SaveRemote(passphrase string, profile RemoteProfile) error {
+// SaveRemoteBytes saves or updates a remote profile in the vault using a mutable byte slice passphrase.
+func (v *FileVault) SaveRemoteBytes(passphrase []byte, profile RemoteProfile) error {
 	v.mu.Lock()
 	defer v.mu.Unlock()
 
-	pBytes := []byte(passphrase)
-	defer MemZero(pBytes)
-
-	store, err := v.loadStore(pBytes)
+	store, err := v.loadStore(passphrase)
 	if err != nil {
 		return err
 	}
 
 	store[profile.Name] = profile
-	return v.saveStore(pBytes, store)
+	return v.saveStore(passphrase, store)
 }
 
-// GetRemote retrieves a profile by name from the encrypted vault.
-func (v *FileVault) GetRemote(passphrase string, name string) (*RemoteProfile, error) {
+// SaveRemote saves or updates a remote profile in the vault.
+func (v *FileVault) SaveRemote(passphrase string, profile RemoteProfile) error {
+	pBytes := []byte(passphrase)
+	defer MemZero(pBytes)
+	return v.SaveRemoteBytes(pBytes, profile)
+}
+
+// GetRemoteBytes retrieves a profile by name from the encrypted vault using a mutable byte slice passphrase.
+func (v *FileVault) GetRemoteBytes(passphrase []byte, name string) (*RemoteProfile, error) {
 	v.mu.RLock()
 	defer v.mu.RUnlock()
 
-	pBytes := []byte(passphrase)
-	defer MemZero(pBytes)
-
-	store, err := v.loadStore(pBytes)
+	store, err := v.loadStore(passphrase)
 	if err != nil {
 		return nil, err
 	}
@@ -284,6 +295,13 @@ func (v *FileVault) GetRemote(passphrase string, name string) (*RemoteProfile, e
 
 	res := profile
 	return &res, nil
+}
+
+// GetRemote retrieves a profile by name from the encrypted vault.
+func (v *FileVault) GetRemote(passphrase string, name string) (*RemoteProfile, error) {
+	pBytes := []byte(passphrase)
+	defer MemZero(pBytes)
+	return v.GetRemoteBytes(pBytes, name)
 }
 
 // ListRemotes enumerates the names of all remote profiles in the vault.

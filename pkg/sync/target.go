@@ -7,8 +7,8 @@ import (
 	"strings"
 )
 
-// winDriveRegex matches Windows drive letters and drive-relative paths such as C:, C:\..., D:/..., D:path
-var winDriveRegex = regexp.MustCompile(`^[a-zA-Z]:(.*)$`)
+// winDriveRegex matches Windows drive roots and absolute drive paths such as C:, C:\..., D:/...
+var winDriveRegex = regexp.MustCompile(`^[a-zA-Z]:([\\/].*)?$`)
 
 // TargetLocation represents a resolved local or remote storage endpoint.
 type TargetLocation struct {

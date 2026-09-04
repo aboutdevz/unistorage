@@ -229,9 +229,9 @@ func TestTier5_Concurrent_Sync_Race_Resilience(t *testing.T) {
 		go func(workerID int) {
 			defer wg.Done()
 			res := h.RunCLI(context.Background(), "sync", srcDir, dstDir, "--checksum")
-			// Under Windows, concurrent rename collisions on identical targets legitimately yield OS access denied / lock errors.
-			// The key resilience guarantee is that the system doesn't panic or crash corrupting the directory.
-			_ = res
+			if res.Err != nil && res.ExitCode == 0 {
+				t.Errorf("unexpected error on 0 exit: %v", res.Err)
+			}
 		}(w)
 	}
 
