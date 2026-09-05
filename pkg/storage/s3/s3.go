@@ -238,12 +238,13 @@ func (d *Driver) uploadMultipart(ctx context.Context, key string, r io.Reader, t
 		if !completed {
 			abortCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
-			if _, abortErr := d.client.AbortMultipartUpload(abortCtx, &awss3.AbortMultipartUploadInput{
+			_, abortErr := d.client.AbortMultipartUpload(abortCtx, &awss3.AbortMultipartUploadInput{
 				Bucket:   aws.String(d.bucket),
 				Key:      aws.String(key),
 				UploadId: aws.String(uploadID),
-			}); abortErr != nil {
-				// Best-effort cleanup on failure
+			})
+			if abortErr != nil {
+				return
 			}
 		}
 	}()

@@ -196,7 +196,11 @@ func RunCp(ctx context.Context, cliCtx *CLIContext, args []string, flags map[str
 		destPath = filepath.Base(srcEp.Prefix)
 	}
 
-	bufPtr := storage.BufferPool.Get().(*[]byte)
+	bufPtr, ok := storage.BufferPool.Get().(*[]byte)
+	if !ok || bufPtr == nil {
+		buf := make([]byte, 64*1024)
+		bufPtr = &buf
+	}
 	defer storage.BufferPool.Put(bufPtr)
 
 	// Stream via constant memory
@@ -236,6 +240,7 @@ func RunRm(ctx context.Context, cliCtx *CLIContext, args []string, flags map[str
 		return nil
 	}
 
+	force := boolFlags["f"] || boolFlags["force"]
 	recursive := boolFlags["r"] || boolFlags["recursive"]
 
 	if recursive || endpoint.IsDir {
@@ -245,15 +250,17 @@ func RunRm(ctx context.Context, cliCtx *CLIContext, args []string, flags map[str
 		}
 		for _, obj := range objects {
 			if !obj.IsDir {
-				_ = endpoint.Driver.Delete(ctx, obj.Path)
+				if delErr := endpoint.Driver.Delete(ctx, obj.Path); delErr != nil && !force {
+					return NewCLIError(ExitIOError, fmt.Sprintf("failed to delete %q", obj.Path), delErr)
+				}
 			}
 		}
-		_ = endpoint.Driver.Delete(ctx, endpoint.Prefix)
+		if delErr := endpoint.Driver.Delete(ctx, endpoint.Prefix); delErr != nil && !force {
+			cliCtx.Debug("failed to delete directory prefix %q: %v", endpoint.Prefix, delErr)
+		}
 		cliCtx.Log("Removed '%s'.", targetStr)
 		return nil
 	}
-
-	force := boolFlags["f"] || boolFlags["force"]
 
 	// Without -f, verify the target exists before attempting deletion
 	if !force {

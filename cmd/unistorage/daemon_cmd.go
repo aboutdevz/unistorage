@@ -69,7 +69,9 @@ func runDaemonStart(cliCtx *CLIContext, args []string, flags map[string]string, 
 		}
 
 		pid := os.Getpid()
-		_ = os.WriteFile(cliCtx.PIDPath(), []byte(strconv.Itoa(pid)+"\n"), 0600)
+		if err := os.WriteFile(cliCtx.PIDPath(), []byte(strconv.Itoa(pid)+"\n"), 0600); err != nil {
+			return NewCLIError(ExitIOError, "failed to write PID file", err)
+		}
 		defer func() { _ = os.Remove(cliCtx.PIDPath()) }()
 
 		server, err := daemon.New(daemon.Config{
@@ -118,9 +120,13 @@ func runDaemonStart(cliCtx *CLIContext, args []string, flags map[string]string, 
 
 	// Wait briefly for PID and health
 	pid := cmd.Process.Pid
-	_ = os.MkdirAll(cliCtx.ConfigDir, 0700)
+	if err := os.MkdirAll(cliCtx.ConfigDir, 0700); err != nil {
+		return NewCLIError(ExitIOError, "failed to create config dir", err)
+	}
 	// #nosec G304, G703 -- PID file written inside trusted config dir with 0600 permissions
-	_ = os.WriteFile(cliCtx.PIDPath(), []byte(strconv.Itoa(pid)+"\n"), 0600)
+	if err := os.WriteFile(cliCtx.PIDPath(), []byte(strconv.Itoa(pid)+"\n"), 0600); err != nil {
+		return NewCLIError(ExitIOError, "failed to write PID file", err)
+	}
 
 	cliCtx.Log("Daemon started on %s (PID %d)", listenAddr, pid)
 	return nil
@@ -151,7 +157,14 @@ func runDaemonStatus(cliCtx *CLIContext, args []string, flags map[string]string,
 	// Probe health endpoint
 	client := &http.Client{Timeout: 3 * time.Second}
 	healthURL := fmt.Sprintf("%s/api/v1/health", cliCtx.DaemonAddr)
-	req, _ := http.NewRequest(http.MethodGet, healthURL, nil)
+	req, err := http.NewRequest(http.MethodGet, healthURL, http.NoBody)
+	if err != nil {
+		if jsonOutput {
+			return cliCtx.PrintJSON(map[string]any{"status": "offline"})
+		}
+		cliCtx.Log("Daemon is offline.")
+		return nil
+	}
 
 	daemonVersion := Version
 	resp, hErr := client.Do(req)
@@ -170,7 +183,7 @@ func runDaemonStatus(cliCtx *CLIContext, args []string, flags map[string]string,
 	if !isOnline {
 		// Try loopback fallback 127.0.0.1:8080 or 8081
 		healthURL2 := "http://127.0.0.1:8080/api/v1/health"
-		if req2, err := http.NewRequest(http.MethodGet, healthURL2, nil); err == nil {
+		if req2, err := http.NewRequest(http.MethodGet, healthURL2, http.NoBody); err == nil {
 			if resp2, err := client.Do(req2); err == nil && resp2.StatusCode == http.StatusOK {
 				isOnline = true
 				var healthResp struct {
@@ -225,7 +238,9 @@ func runDaemonStop(cliCtx *CLIContext, args []string, flags map[string]string, b
 
 	proc, err := os.FindProcess(pid)
 	if err == nil && proc != nil {
-		_ = proc.Kill()
+		if kErr := proc.Kill(); kErr != nil {
+			cliCtx.Debug("process kill error: %v", kErr)
+		}
 		// Wait up to 3 seconds
 		for i := 0; i < 30; i++ {
 			time.Sleep(100 * time.Millisecond)
