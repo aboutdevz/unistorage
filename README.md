@@ -35,7 +35,12 @@
   - [7. Version Inspection (`version`)](#7-version-inspection-version)
   - [Global Flags Reference](#global-flags-reference)
 - [Daemon REST API](#daemon-rest-api)
-- [Production Container Deployment](#production-container-deployment)
+- [Docker Usage & Container Deployment](#docker-usage--container-deployment)
+  - [Building the Container Image](#building-the-container-image)
+  - [Running CLI Commands via Docker](#running-cli-commands-via-docker)
+  - [Running Standalone Daemon](#running-standalone-daemon)
+  - [Docker Compose Development Stack](#docker-compose-development-stack)
+  - [Docker Environment Variables](#docker-environment-variables)
 - [Security & SSDLC](#security--ssdlc)
 - [Development Roadmap](#development-roadmap)
 - [Contributing & Community](#contributing--community)
@@ -352,23 +357,105 @@ curl -s -H "Authorization: Bearer $TOKEN" \
 
 ---
 
-## Production Container Deployment
+## Docker Usage & Container Deployment
 
-Build and run a production-ready, non-root distroless container:
+UniStorage provides multi-stage, non-root Alpine container images (`10001:10001`) with read-only root filesystems and minimal attack surfaces.
+
+### Building the Container Image
+
+Build the optimized multi-stage production image from source:
 
 ```bash
-# Build multi-stage container image
+# Build static binary and hardened runtime image
 docker build -t unistorage:latest -f Dockerfile .
+```
 
-# Run hardened container with dedicated non-root UID (10001:10001)
+### Running CLI Commands via Docker
+
+The container entrypoint defaults to `/usr/local/bin/unistorage`. Any CLI command can be executed directly by passing arguments to `docker run`:
+
+```bash
+# Display version and build metadata
+docker run --rm unistorage:latest version
+
+# View CLI help
+docker run --rm unistorage:latest --help
+
+# Run CLI operations with host directory mounts
+docker run --rm \
+  -v "${PWD}:/data" \
+  -v "${HOME}/.unistorage:/config" \
+  unistorage:latest ls local:///data
+```
+
+> [!TIP]
+> Mount your host working directory to `/data` and host configuration to `/config` to persist remotes, vault secrets, and synchronization state across container runs.
+
+### Running Standalone Daemon
+
+Deploy the UniStorage background daemon as a persistent container:
+
+```bash
+# Run hardened daemon with non-root UID (10001:10001)
 docker run -d \
   --name unistorage-daemon \
   --restart unless-stopped \
   --user 10001:10001 \
   -p 127.0.0.1:8080:8080 \
+  -v unistorage-config:/config \
   -v unistorage-data:/data \
   unistorage:latest
 ```
+
+Verify daemon health:
+
+```bash
+curl -f http://127.0.0.1:8080/api/v1/health
+```
+
+### Docker Compose Development Stack
+
+The included `docker-compose.yml` spins up a complete, isolated local storage stack comprising:
+- **MinIO**: Local S3-compatible mock storage server (API on `:9000`, web console on `:9001`).
+- **MinIO Init**: One-shot auto-provisioner creating `unistorage-dev-bucket`, `test-bucket`, and `backup-bucket`.
+- **UniStorage Daemon**: Core service container pre-configured against local MinIO with debug logging.
+
+```bash
+# Start all services in the background
+docker compose up -d
+
+# Check service health and running status
+docker compose ps
+
+# Follow container logs
+docker compose logs -f unistorage
+
+# Execute CLI commands inside the running daemon container
+docker compose exec unistorage unistorage version
+
+# Stop and remove containers and networks
+docker compose down
+
+# To also delete persistent volumes (MinIO data and UniStorage state):
+docker compose down -v
+```
+
+### Docker Environment Variables
+
+The daemon and container runtime support configuration via environment variables:
+
+| Variable | Default | Description |
+|---|---|---|
+| `UNISTORAGE_DAEMON_PORT` | `8080` | Port for the HTTP management daemon |
+| `UNISTORAGE_DAEMON_ADDR` | `127.0.0.1` | Listen address (`0.0.0.0` inside container) |
+| `UNISTORAGE_CONFIG_DIR` | `/config` | Directory path for vault secrets and remote configurations |
+| `UNISTORAGE_DATA_DIR` | `/data` | Default data storage directory |
+| `UNISTORAGE_LOG_LEVEL` | `info` | Log verbosity (`debug`, `info`, `warn`, `error`) |
+| `UNISTORAGE_S3_ENDPOINT` | — | S3-compatible endpoint URL (e.g., `http://minio:9000`) |
+| `UNISTORAGE_S3_REGION` | `us-east-1` | S3 region identifier |
+| `UNISTORAGE_S3_BUCKET` | — | Target S3 bucket name |
+| `UNISTORAGE_S3_ACCESS_KEY` | — | Access key ID for S3 backend |
+| `UNISTORAGE_S3_SECRET_KEY` | — | Secret access key for S3 backend |
 
 ---
 
