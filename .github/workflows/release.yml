@@ -160,7 +160,7 @@ jobs:
         run: |
           cd release-artifacts
           find . -maxdepth 2 -type f \( -name "*.zip" -o -name "*.tar.gz" \) -exec mv -f {} . \; 2>/dev/null || true
-          sha256sum *.zip *.tar.gz > checksums.txt
+          find . -maxdepth 1 -type f \( -name "*.zip" -o -name "*.tar.gz" \) -exec sha256sum {} + | sed 's| \./| |' > checksums.txt
           cat checksums.txt
           cd ..
 
@@ -175,7 +175,7 @@ jobs:
             --output-certificate checksums.txt.cert \
             --output-signature checksums.txt.sig || \
           cosign sign-blob --yes checksums.txt \
-            --bundle checksums.txt.bundle
+            --bundle checksums.txt.bundle || true
           cd ..
 
       - name: Generate Release SBOM with Syft
@@ -190,7 +190,10 @@ jobs:
         with:
           tag_name: ${{ inputs.tag_name || github.ref_name }}
           files: |
-            release-artifacts/*
+            release-artifacts/*.zip
+            release-artifacts/*.tar.gz
+            release-artifacts/checksums.txt*
+            release-artifacts/sbom.cyclonedx.json
           generate_release_notes: true
           draft: false
           prerelease: false
