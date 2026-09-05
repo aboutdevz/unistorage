@@ -253,6 +253,15 @@ func RunRm(ctx context.Context, cliCtx *CLIContext, args []string, flags map[str
 		return nil
 	}
 
+	force := boolFlags["f"] || boolFlags["force"]
+
+	// Without -f, verify the target exists before attempting deletion
+	if !force {
+		if _, err := endpoint.Driver.Stat(ctx, endpoint.Prefix); err != nil {
+			return NewCLIError(ExitNotFound, fmt.Sprintf("target %q not found", targetStr), err)
+		}
+	}
+
 	if err := endpoint.Driver.Delete(ctx, endpoint.Prefix); err != nil {
 		return NewCLIError(ExitIOError, fmt.Sprintf("failed to remove %q", targetStr), err)
 	}
