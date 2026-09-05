@@ -50,7 +50,10 @@ func (c *CommunityChecker) LicenseInfo() (*LicenseInfo, error) {
 
 // IsFeatureEnabled returns false for all enterprise features.
 func (c *CommunityChecker) IsFeatureEnabled(ctx context.Context, feat Feature) bool {
-	ok, _ := c.Check(ctx, feat)
+	ok, err := c.Check(ctx, feat)
+	if err != nil {
+		return false
+	}
 	return ok
 }
 

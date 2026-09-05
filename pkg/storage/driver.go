@@ -125,7 +125,12 @@ var BufferPool = sync.Pool{
 
 // StreamCopy copies from src to dst using a pooled 64KB buffer for constant O(1) memory usage.
 func StreamCopy(dst io.Writer, src io.Reader) (int64, error) {
-	bufPtr := BufferPool.Get().(*[]byte)
+	bufObj := BufferPool.Get()
+	bufPtr, ok := bufObj.(*[]byte)
+	if !ok {
+		b := make([]byte, 64*1024)
+		bufPtr = &b
+	}
 	defer BufferPool.Put(bufPtr)
 	return io.CopyBuffer(dst, src, *bufPtr)
 }

@@ -284,27 +284,27 @@ func matchDockerignoreRule(rule string, path string) bool {
 	// Check directory / exact match or prefix match
 	if isDirOnly {
 		for i, part := range parts {
-			if matched, _ := filepath.Match(cleanRule, part); matched {
+			if matched, err := filepath.Match(cleanRule, part); err == nil && matched {
 				// If matched part is not the terminal file, or is a directory
 				if i < len(parts)-1 || isDirOnly {
 					return true
 				}
 			}
 		}
-		if matched, _ := filepath.Match(cleanRule, normalizedPath); matched {
+		if matched, err := filepath.Match(cleanRule, normalizedPath); err == nil && matched {
 			return true
 		}
 	} else {
 		// File or directory glob match against base name or entire path
 		baseName := filepath.Base(normalizedPath)
-		if matched, _ := filepath.Match(cleanRule, baseName); matched {
+		if matched, err := filepath.Match(cleanRule, baseName); err == nil && matched {
 			return true
 		}
-		if matched, _ := filepath.Match(cleanRule, normalizedPath); matched {
+		if matched, err := filepath.Match(cleanRule, normalizedPath); err == nil && matched {
 			return true
 		}
 		for _, part := range parts {
-			if matched, _ := filepath.Match(cleanRule, part); matched {
+			if matched, err := filepath.Match(cleanRule, part); err == nil && matched {
 				return true
 			}
 		}

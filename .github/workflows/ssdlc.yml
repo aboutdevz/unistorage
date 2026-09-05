@@ -68,17 +68,18 @@ jobs:
       - name: Run Golangci-lint
         uses: golangci/golangci-lint-action@v6
         with:
-          version: latest
+          version: v1.64.8
           install-mode: goinstall
           args: --timeout=5m --config=.golangci.yml
 
       - name: Run Standalone Gosec
+        if: success() || failure()
         run: |
           go install github.com/securego/gosec/v2/cmd/gosec@latest
           gosec -fmt=sarif -out=gosec-results.sarif -severity=medium -confidence=medium ./...
 
       - name: Upload SARIF report
-        if: always()
+        if: always() && hashFiles('gosec-results.sarif') != ''
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: gosec-results.sarif

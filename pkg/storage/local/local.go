@@ -349,7 +349,10 @@ func (d *Driver) Stat(ctx context.Context, path string) (*storage.ObjectInfo, er
 		return nil, &storage.StorageError{Op: "stat", Driver: "local", Path: path, Err: err}
 	}
 
-	rel, _ := filepath.Rel(d.rootDir, fullPath)
+	rel, err := filepath.Rel(d.rootDir, fullPath)
+	if err != nil {
+		return nil, &storage.StorageError{Op: "stat", Driver: "local", Path: path, Err: err}
+	}
 	relSlash := filepath.ToSlash(rel)
 
 	return &storage.ObjectInfo{

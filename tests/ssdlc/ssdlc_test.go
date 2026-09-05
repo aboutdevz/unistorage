@@ -483,24 +483,24 @@ func matchGitignoreRule(rule string, path string) bool {
 
 	if isDirOnly {
 		for i, part := range parts {
-			if matched, _ := filepath.Match(cleanRule, part); matched {
+			if matched, err := filepath.Match(cleanRule, part); err == nil && matched {
 				if i < len(parts)-1 || isDirOnly {
 					return true
 				}
 			}
 		}
-		if matched, _ := filepath.Match(cleanRule, normalizedPath); matched {
+		if matched, err := filepath.Match(cleanRule, normalizedPath); err == nil && matched {
 			return true
 		}
 	} else {
-		if matched, _ := filepath.Match(cleanRule, baseName); matched {
+		if matched, err := filepath.Match(cleanRule, baseName); err == nil && matched {
 			return true
 		}
-		if matched, _ := filepath.Match(cleanRule, normalizedPath); matched {
+		if matched, err := filepath.Match(cleanRule, normalizedPath); err == nil && matched {
 			return true
 		}
 		for _, part := range parts {
-			if matched, _ := filepath.Match(cleanRule, part); matched {
+			if matched, err := filepath.Match(cleanRule, part); err == nil && matched {
 				return true
 			}
 		}
@@ -681,9 +681,12 @@ func TestFuzzPathSanitizer_Execution(t *testing.T) {
 		root := findProjectRoot(t)
 		goBin := "go"
 		if customGo := os.Getenv("GOROOT"); customGo != "" {
-			candidate := filepath.Join(customGo, "bin", "go.exe")
-			if _, err := os.Stat(candidate); err == nil {
-				goBin = candidate
+			candidateWin := filepath.Join(customGo, "bin", "go.exe")
+			candidateUnix := filepath.Join(customGo, "bin", "go")
+			if _, err := os.Stat(candidateWin); err == nil {
+				goBin = candidateWin
+			} else if _, err := os.Stat(candidateUnix); err == nil {
+				goBin = candidateUnix
 			}
 		} else if _, err := os.Stat(`C:\Program Files\Go\bin\go.exe`); err == nil {
 			goBin = `C:\Program Files\Go\bin\go.exe`

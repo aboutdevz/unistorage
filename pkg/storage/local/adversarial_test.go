@@ -297,7 +297,7 @@ func TestAdversarial_SymlinkEscapes(t *testing.T) {
 		if err != nil {
 			t.Fatalf("safe internal symlink should be allowed, got error: %v", err)
 		}
-		if resolved != filepath.Clean(filepath.Join(tempDir, "link_safe")) {
+		if resolved != filepath.Clean(filepath.Join(drv.RootDir(), "link_safe")) {
 			t.Fatalf("unexpected resolved path: %q", resolved)
 		}
 	})

@@ -176,14 +176,25 @@ func TestMockDriverConcurrency(t *testing.T) {
 				key := fmt.Sprintf("worker-%d/file-%d.txt", workerID, j)
 				data := []byte(fmt.Sprintf("content-%d-%d", workerID, j))
 
-				_ = driver.Write(ctx, key, bytes.NewReader(data), int64(len(data)))
-				_, _ = driver.Stat(ctx, key)
+				if err := driver.Write(ctx, key, bytes.NewReader(data), int64(len(data))); err != nil {
+					t.Errorf("worker %d write failed: %v", workerID, err)
+					return
+				}
+				if _, err := driver.Stat(ctx, key); err != nil {
+					t.Errorf("worker %d stat failed: %v", workerID, err)
+					return
+				}
 				rc, err := driver.Read(ctx, key)
 				if err == nil {
-					_, _ = io.ReadAll(rc)
+					if _, err := io.ReadAll(rc); err != nil {
+						t.Errorf("worker %d readall failed: %v", workerID, err)
+					}
 					_ = rc.Close()
 				}
-				_ = driver.Delete(ctx, key)
+				if err := driver.Delete(ctx, key); err != nil {
+					t.Errorf("worker %d delete failed: %v", workerID, err)
+					return
+				}
 			}
 		}(i)
 	}
