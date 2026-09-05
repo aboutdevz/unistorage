@@ -54,7 +54,12 @@ func BackupConflict(ctx context.Context, destDriver storage.Driver, relPath stri
 		}
 		defer f.Close()
 
-		bufPtr := storage.BufferPool.Get().(*[]byte)
+		bufObj := storage.BufferPool.Get()
+		bufPtr, ok := bufObj.(*[]byte)
+		if !ok {
+			b := make([]byte, 64*1024)
+			bufPtr = &b
+		}
 		defer storage.BufferPool.Put(bufPtr)
 		if _, err := io.CopyBuffer(f, rc, *bufPtr); err != nil {
 			return "", fmt.Errorf("conflict backup aborted: stream copy error for %q: %w", destFile, err)

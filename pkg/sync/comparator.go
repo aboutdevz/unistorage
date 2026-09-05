@@ -68,7 +68,12 @@ func ComputeSHA256(ctx context.Context, driver storage.Driver, path string) (str
 	defer rc.Close()
 
 	hasher := sha256.New()
-	bufPtr := storage.BufferPool.Get().(*[]byte)
+	bufObj := storage.BufferPool.Get()
+	bufPtr, ok := bufObj.(*[]byte)
+	if !ok {
+		b := make([]byte, 64*1024)
+		bufPtr = &b
+	}
 	defer storage.BufferPool.Put(bufPtr)
 
 	if _, err := io.CopyBuffer(hasher, rc, *bufPtr); err != nil {

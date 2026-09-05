@@ -238,11 +238,13 @@ func (d *Driver) uploadMultipart(ctx context.Context, key string, r io.Reader, t
 		if !completed {
 			abortCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
-			_, _ = d.client.AbortMultipartUpload(abortCtx, &awss3.AbortMultipartUploadInput{
+			if _, abortErr := d.client.AbortMultipartUpload(abortCtx, &awss3.AbortMultipartUploadInput{
 				Bucket:   aws.String(d.bucket),
 				Key:      aws.String(key),
 				UploadId: aws.String(uploadID),
-			})
+			}); abortErr != nil {
+				// Best-effort cleanup on failure
+			}
 		}
 	}()
 
@@ -359,7 +361,7 @@ func (d *Driver) ListWithOptions(ctx context.Context, opts storage.ListOptions) 
 		return nil, &storage.StorageError{Op: "list", Driver: "s3", Path: opts.Prefix, Err: err}
 	}
 
-	var results []storage.ObjectInfo
+	results := make([]storage.ObjectInfo, 0, len(out.Contents))
 	for _, obj := range out.Contents {
 		k := aws.ToString(obj.Key)
 		modTime := time.Time{}

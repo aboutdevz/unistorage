@@ -50,7 +50,10 @@ const DefaultTokenFileName = "daemon.token"
 
 // DefaultConfig returns safe default configuration bound to loopback 127.0.0.1:8080.
 func DefaultConfig() Config {
-	home, _ := os.UserHomeDir()
+	home, err := os.UserHomeDir()
+	if err != nil {
+		home = os.TempDir()
+	}
 	return Config{
 		Addr:            "127.0.0.1:8080",
 		TokenFile:       filepath.Join(home, ".unistorage", DefaultTokenFileName),
@@ -292,16 +295,20 @@ func (s *Server) securityMiddleware(next http.Handler) http.Handler {
 func (s *Server) writeJSON(w http.ResponseWriter, statusCode int, data any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(statusCode)
-	_ = json.NewEncoder(w).Encode(data)
+	if err := json.NewEncoder(w).Encode(data); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
 }
 
 func (s *Server) writeJSONError(w http.ResponseWriter, statusCode int, errType string, message string) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(statusCode)
-	_ = json.NewEncoder(w).Encode(map[string]string{
+	if err := json.NewEncoder(w).Encode(map[string]string{
 		"error":   errType,
 		"message": message,
-	})
+	}); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
@@ -430,9 +437,7 @@ func parseStoragePath(fullURLPath string) (remote string, objPath string, isList
 	if objPath == "objects" || objPath == "objects/" {
 		return remote, "", true
 	}
-	if strings.HasPrefix(objPath, "objects/") {
-		objPath = strings.TrimPrefix(objPath, "objects/")
-	}
+	objPath = strings.TrimPrefix(objPath, "objects/")
 	return remote, objPath, false
 }
 
@@ -447,7 +452,12 @@ func (s *Server) handleStorageGet(w http.ResponseWriter, r *http.Request) {
 	if isList {
 		prefix := r.URL.Query().Get("prefix")
 		recursive := r.URL.Query().Get("recursive") != "false"
-		maxKeys, _ := strconv.Atoi(r.URL.Query().Get("max_keys"))
+		maxKeys := 0
+		if mkStr := r.URL.Query().Get("max_keys"); mkStr != "" {
+			if parsed, err := strconv.Atoi(mkStr); err == nil {
+				maxKeys = parsed
+			}
+		}
 		token := r.URL.Query().Get("token")
 
 		if adv, ok := drv.(storage.AdvancedDriver); ok {

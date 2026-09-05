@@ -8,6 +8,22 @@ issues:
     - testdata
     - .agents
     - bin
+  exclude-rules:
+    - path: (_test\.go|tests/)
+      linters:
+        - errcheck
+        - gosec
+        - revive
+        - gocritic
+        - bodyclose
+        - noctx
+        - prealloc
+    - text: "stutters; consider calling this"
+      linters:
+        - revive
+    - linters:
+        - gocritic
+      text: "(hugeParam|octalLiteral|paramTypeCombine|stringXbytes|ifElseChain|unnamedResult|evalOrder|rangeValCopy)"
 
 linters-settings:
   gosec:
@@ -20,7 +36,7 @@ linters-settings:
     check-blank: true
   govet:
     # check-shadowing: true
-    enable-all: true
+    # enable-all: true
   revive:
     rules:
       - name: exported

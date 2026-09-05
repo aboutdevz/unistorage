@@ -168,7 +168,7 @@ func Sync(ctx context.Context, srcDriver storage.Driver, srcPrefix string, destD
 		destPath string
 	}
 
-	var tasks []syncTask
+	tasks := make([]syncTask, 0, len(srcObjects))
 	for _, obj := range srcObjects {
 		if obj.IsDir {
 			continue

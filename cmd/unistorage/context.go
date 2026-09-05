@@ -72,7 +72,10 @@ func NewCLIContext(flags map[string]string, boolFlags map[string]bool) *CLIConte
 	} else if envCfg := os.Getenv("UNISTORAGE_CONFIG_DIR"); envCfg != "" {
 		ctx.ConfigDir = envCfg
 	} else {
-		home, _ := os.UserHomeDir()
+		home, err := os.UserHomeDir()
+		if err != nil {
+			home = os.TempDir()
+		}
 		ctx.ConfigDir = filepath.Join(home, ".unistorage")
 	}
 
@@ -82,7 +85,10 @@ func NewCLIContext(flags map[string]string, boolFlags map[string]bool) *CLIConte
 	} else if envData := os.Getenv("UNISTORAGE_DATA_DIR"); envData != "" {
 		ctx.DataDir = envData
 	} else {
-		home, _ := os.UserHomeDir()
+		home, err := os.UserHomeDir()
+		if err != nil {
+			home = os.TempDir()
+		}
 		ctx.DataDir = filepath.Join(home, ".unistorage", "data")
 	}
 

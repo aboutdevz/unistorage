@@ -317,7 +317,7 @@ func (v *FileVault) ListRemotes(passphrase string) ([]string, error) {
 		return nil, err
 	}
 
-	var names []string
+	names := make([]string, 0, len(store))
 	for k := range store {
 		names = append(names, k)
 	}
