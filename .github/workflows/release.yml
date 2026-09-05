@@ -4,6 +4,12 @@ on:
   push:
     tags:
       - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: 'Tag name (e.g. v0.1.0)'
+        required: false
+        default: 'v0.1.0'
 
 permissions:
   contents: write
@@ -59,7 +65,7 @@ jobs:
           GOARCH: ${{ matrix.arch }}
           CGO_ENABLED: 0
         run: |
-          TAG_NAME=${GITHUB_REF#refs/tags/}
+          TAG_NAME="${{ inputs.tag_name || github.ref_name }}"
           COMMIT_SHA=$(git rev-parse --short HEAD)
           BUILD_TIME=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
           
@@ -178,6 +184,7 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ inputs.tag_name || github.ref_name }}
           files: |
             release-artifacts/*
           generate_release_notes: true
