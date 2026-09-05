@@ -93,7 +93,10 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: binaries-${{ matrix.os }}-${{ matrix.arch }}
-          path: dist/*.tar.gz dist/*.zip
+          path: |
+            dist/*.tar.gz
+            dist/*.zip
+          if-no-files-found: ignore
 
   # ----------------------------------------------------------------------------
   # 2. Multi-Arch Container Image Build & Publish (GHCR)
@@ -160,7 +163,8 @@ jobs:
         run: |
           cd release-artifacts
           find . -maxdepth 2 -type f \( -name "*.zip" -o -name "*.tar.gz" \) -exec mv -f {} . \; 2>/dev/null || true
-          find . -maxdepth 1 -type f \( -name "*.zip" -o -name "*.tar.gz" \) -exec sha256sum {} + | sed 's| \./| |' > checksums.txt
+          ls -la
+          sha256sum unistorage_* > checksums.txt
           cat checksums.txt
           cd ..
 
