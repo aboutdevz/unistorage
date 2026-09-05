@@ -152,13 +152,15 @@ jobs:
       - name: Download all built binaries
         uses: actions/download-artifact@v4
         with:
+          pattern: binaries-*
           path: release-artifacts
           merge-multiple: true
 
       - name: Generate Cryptographic SHA-256 Checksums
         run: |
           cd release-artifacts
-          sha256sum *.zip *.tar.gz > checksums.txt 2>/dev/null || find . -maxdepth 1 -type f ! -name "checksums.txt" -exec sha256sum {} + > checksums.txt
+          find . -maxdepth 2 -type f \( -name "*.zip" -o -name "*.tar.gz" \) -exec mv -f {} . \; 2>/dev/null || true
+          sha256sum *.zip *.tar.gz > checksums.txt
           cat checksums.txt
           cd ..
 
@@ -169,9 +171,11 @@ jobs:
         run: |
           cd release-artifacts
           cosign sign-blob --yes checksums.txt \
-            --bundle cosign.bundle \
+            --bundle checksums.txt.bundle \
             --output-certificate checksums.txt.cert \
-            --output-signature checksums.txt.sig
+            --output-signature checksums.txt.sig || \
+          cosign sign-blob --yes checksums.txt \
+            --bundle checksums.txt.bundle
           cd ..
 
       - name: Generate Release SBOM with Syft
