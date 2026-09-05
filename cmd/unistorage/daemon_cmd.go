@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -155,9 +156,12 @@ func runDaemonStatus(cliCtx *CLIContext, args []string, flags map[string]string,
 	}
 
 	// Probe health endpoint
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
 	client := &http.Client{Timeout: 3 * time.Second}
 	healthURL := fmt.Sprintf("%s/api/v1/health", cliCtx.DaemonAddr)
-	req, err := http.NewRequest(http.MethodGet, healthURL, http.NoBody)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, healthURL, http.NoBody)
 	if err != nil {
 		if jsonOutput {
 			return cliCtx.PrintJSON(map[string]any{"status": "offline"})
@@ -183,7 +187,7 @@ func runDaemonStatus(cliCtx *CLIContext, args []string, flags map[string]string,
 	if !isOnline {
 		// Try loopback fallback 127.0.0.1:8080 or 8081
 		healthURL2 := "http://127.0.0.1:8080/api/v1/health"
-		if req2, err := http.NewRequest(http.MethodGet, healthURL2, http.NoBody); err == nil {
+		if req2, err := http.NewRequestWithContext(ctx, http.MethodGet, healthURL2, http.NoBody); err == nil {
 			if resp2, err := client.Do(req2); err == nil && resp2.StatusCode == http.StatusOK {
 				isOnline = true
 				var healthResp struct {
