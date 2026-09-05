@@ -37,6 +37,7 @@ linters-settings:
   govet:
     # check-shadowing: true
     # enable-all: true
+    enable-all: false
   revive:
     rules:
       - name: exported
